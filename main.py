@@ -1,21 +1,23 @@
-from pathlib import Path
-
 from cli import parse_config_path
 from config import read_yaml
+from hardware.collector import HardwareCollector
+from reporter import Reporter
 
 
 def main() -> None:
     config_path = parse_config_path()
     config = read_yaml(config_path)
+    
+    reporter = Reporter(config.output)
 
+    if config.system_info:
+        collector = HardwareCollector(config.system_info)
+        system_info = collector.get_system_info()
+        reporter.report(system_info)
 
-
-    match ...:
-        case _:
-            ...
-
-
-
+    if config.benchmark:
+        ...
+        reporter.report(...)  
 
 if __name__ == '__main__':
     main()
