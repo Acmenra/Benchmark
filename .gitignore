@@ -38,7 +38,7 @@ htmlcov/
 .ipynb_checkpoints
 *.ipynb
 
-models/
+# models/
 *.pt
 *.pth
 *.onnx
