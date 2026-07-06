@@ -1,6 +1,8 @@
 from config import OutputConfig
 
-
+# data должна быть классом и с помощью обхода его полей формировать файл.
+# Делать обход с помощью vars или __dict__ (лучше vars)
+# подумать над дефолтном в match/case
 class Reporter:
     def __init__(self, output_config: OutputConfig) -> None:
         self.output_config = output_config
