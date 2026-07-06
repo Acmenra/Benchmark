@@ -84,5 +84,5 @@ site/
 *.bak
 *.backup
 *.orig
-test_*.py
+# test_*.py
 debug_*.py
