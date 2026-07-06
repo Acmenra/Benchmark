@@ -7,14 +7,15 @@ class ModelConfig:
     # при одной модели можно задавать несколько размеров
     # sizes: [n, s, ...], 
     # тогда все они должны быть выделены как отдельные ModelConfig
+    #
     # Если за один прогон несколько моделей, 
-    # то можно лишь указать один размер для каждой размеры ()
+    # то можно лишь указать один размер для каждой модели (валидация)
     size: str
     family: str
 
     
 # Один прогон моделей 
-# Если len(models) == 1 - одна модель прогоняется, тогда можно 
+# Если len(models) == 1 - одна модель прогоняется 
 # Если len(models) > 1 - несколько моделей за один раз
 @dataclass(slots=True, frozen=True)
 class BenchmarkRun:
@@ -36,8 +37,8 @@ class SystemInfoConfig:
 @dataclass(slots=True, frozen=True)
 class OutputConfig:
     directory: Path
-    formats: list[str] # [json, csv, markdown]
-    timestamp: bool
+    formats: list[str] # [json, csv, md]
+    use_timestamp: bool
 
 
 @dataclass(slots=True, frozen=True)
