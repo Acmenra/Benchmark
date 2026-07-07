@@ -50,6 +50,7 @@ class TemperatureInfo:
 
     cpu_celsius: float | None
     gpu_celsius: float | None
+    ...
 
 
 @dataclass(slots=True, frozen=True)
@@ -96,6 +97,8 @@ class SystemInfo:
         cpu (CPUInfo | None): Информация о центральном процессоре.
         gpu (GPUInfo | None): Информация о графическом процессоре.
         os (OSInfo | None): Информация об операционной системе.
+        temperature (TemperatureInfo | None): Информация о температурах компонентов системы.
+        power (PowerInfo | None): Информация об энергопотреблении компонентов системы.
     """
         
     platform: HardwarePlatform | None
@@ -104,7 +107,7 @@ class SystemInfo:
     cpu: CPUInfo | None
     gpu: GPUInfo | None 
     os: OSInfo | None
-    # temperature: TemperatureInfo | None
-    # power: PowerInfo | None
+    temperature: TemperatureInfo | None
+    power: PowerInfo | None
     
     ...
