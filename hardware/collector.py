@@ -1,3 +1,5 @@
+# hardware/collector.py
+
 from dataclasses import dataclass
 
 from config import SystemInfoConfig

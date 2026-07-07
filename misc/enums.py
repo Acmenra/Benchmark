@@ -1,9 +1,92 @@
+# misc/enums.py
+
 import logging
 from enum import Enum, EnumType
 
 
 logger = logging.getLogger(__name__)
 
+
+class TaskType(Enum): ... # TODO тянем с acmenra-cv
+
+
+class DeviceType(Enum): ... # TODO тянем с acmenra-cv
+
+
+class QuantizationLevel(Enum):
+    FP32 = 'fp32'   # Полная точность, нет оптимизации
+    FP16 = 'fp16'   # Половинная точность, 2× ускорение на GPU
+    INT8 = 'int8'   # 8-битное квантование, 4× ускорение, потеря точности
+    INT4 = 'int4'   # 4-битное квантование, экспериментально
+
+
+class ExportTarget(Enum):
+    X86_64 = 'x86_64'
+    ARM64 = 'arm64'
+    RISC_V = 'risc_v'  # для будущих edge-чипов
+
+
+class ReportFormat(Enum):
+    JSON = 'json'
+    CSV = 'csv'
+    MARKDOWN = 'markdown'
+    HTML = 'html'
+
+
+class PlatformType(Enum):
+    DESKTOP = 'desktop'
+    JETSON = 'jetson'
+    RASPBERRY_PI = 'raspberry_pi'
+    INTEL_NUC = 'intel_nuc'
+    HAILO = 'hailo'
+    UNKNOWN = 'unknown'  # fallback для неопознанных систем
+
+
+class ModelFormat(Enum):
+    PYTORCH = 'pytorch'
+    ONNX = 'onnx'
+    TENSORRT = 'tensorrt'
+    OPENVINO = 'openvino'
+    RKNN = 'rknn'
+    COREML = 'coreml'  # для Apple Silicon (будущее)
+
+
+class ModelSize(Enum):
+    NANO = 'n'      # ~3M params, fastest
+    SMALL = 's'     # ~11M params, balanced
+    MEDIUM = 'm'    # ~26M params, accurate
+    LARGE = 'l'     # ~44M params, high-accuracy
+    XLARGE = 'x'    # ~68M params, max-accuracy
+
+
+class ModelFamily(Enum):
+    YOLOV5 = 'yolov5'
+    YOLOV8 = 'yolov8'
+    YOLOV10 = 'yolov10'
+    YOLOV11 = 'yolov11'
+    YOLOV12 = 'yolov12'  # placeholder для будущих версий
+    PRISM = 'prism'      # Acmenra custom architecture
+    RTDETR = 'rtdetr'    # Real-time DETR
+    EFFICIENTDET = 'efficientdet'
+
+
+class MetricType(Enum):
+    FPS = 'fps'
+
+    # Ресурсы
+    GPU_UTIL = 'gpu_utilization'
+    CPU_UTIL = 'cpu_utilization'
+    VRAM_USAGE = 'vram_usage_mb'
+    RAM_USAGE = 'ram_usage_mb'
+
+    # Энергия и термо
+    POWER_WATT = 'power_watt'
+    TEMP_GPU_C = 'temp_gpu_c'
+    TEMP_CPU_C = 'temp_cpu_c'
+
+    # Точность (если есть ground truth)
+    MAP_50 = 'map_50'
+    MAP_50_95 = 'map_50_95'
 
 
 class Coco(Enum):
