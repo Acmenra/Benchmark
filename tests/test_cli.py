@@ -1,7 +1,8 @@
-import sys
-from pathlib import Path
+# tests/test_cli.py
 
+import sys
 import pytest
+from pathlib import Path
 
 from cli import parse_config_path
 

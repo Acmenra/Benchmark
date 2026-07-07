@@ -1,3 +1,5 @@
+# main.py
+
 from cli import parse_config_path
 from config import read_yaml
 from hardware.collector import HardwareCollector
