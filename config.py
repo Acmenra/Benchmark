@@ -146,7 +146,11 @@ class ModelConfig:
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> ModelConfig:
-        """Create a model configuration from a dictionary.
+        """Create a single model configuration from a dictionary.
+
+        This method expects a normalized model definition with exactly one `size`.
+        Use `BenchmarkRun.from_dict` to parse YAML model definitions that may contain
+        `sizes` with multiple model sizes.
 
         Parameters:
         -----------
@@ -163,7 +167,7 @@ class ModelConfig:
         TypeError
             If the provided value is not a dictionary.
         ConfigError
-            If required fields are missing or invalid.
+            If required fields are missing or invalid, or if the model definition contains multiple sizes.
         """
         if not isinstance(data, dict):
             raise TypeError("The provided model configuration must be a dictionary.")
@@ -171,6 +175,11 @@ class ModelConfig:
             raise ConfigError("Model configuration must contain the 'family' field.")
         if "size" not in data:
             raise ConfigError("Model configuration must contain the 'size' field.")
+        if "sizes" in data:
+            raise ConfigError(
+                "ModelConfig.from_dict expects a single 'size'. "
+                "Use BenchmarkRun.from_dict to parse 'sizes'."
+            )
         return ModelConfig(family=data["family"], size=data["size"])
 
 
@@ -328,6 +337,13 @@ class BenchmarkRun:
         --------
         List[ModelConfig]
             A list of expanded model configurations.
+        
+        Raises:
+        -------
+        TypeError
+            If the model definition has an invalid type.
+        ConfigError
+            If the model definition is missing required fields.
         """
         if not isinstance(raw_model, dict):
             raise TypeError("Each model definition must be a dictionary.")
@@ -783,6 +799,11 @@ class BenchmarkConfig:
         --------
         BenchmarkConfig
             A validated benchmark configuration.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a dictionary.
         """
         if not isinstance(data, dict):
             raise TypeError("The provided benchmark configuration must be a dictionary.")
@@ -824,6 +845,11 @@ class BenchmarkConfig:
             Required field names.
         section_name : str
             Human-readable section name used in error messages.
+        
+        Raises:
+        -------
+        ConfigError
+            If any required fields are missing.
         """
         missing_fields = sorted(required_fields - data.keys())
         if missing_fields:
@@ -844,6 +870,13 @@ class BenchmarkConfig:
         --------
         int
             The validated integer value.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an integer.
+        ConfigError
+            If the provided value is not positive.
         """
         if not isinstance(value, int) or isinstance(value, bool):
             raise TypeError(f"The provided '{field_name}' value must be an integer.")
@@ -866,6 +899,13 @@ class BenchmarkConfig:
         --------
         int
             The validated integer value.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an integer.
+        ConfigError
+            If the provided value is negative.
         """
         if not isinstance(value, int) or isinstance(value, bool):
             raise TypeError(f"The provided '{field_name}' value must be an integer.")
@@ -922,6 +962,11 @@ class SystemInfoConfig:
         -----------
         value : bool
             Whether GPU information should be collected.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a boolean.
         """
         self._collect_gpu = self._validate_bool(value=value, field_name="collect_gpu")
 
@@ -944,6 +989,10 @@ class SystemInfoConfig:
         -----------
         value : bool
             Whether power information should be collected.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a boolean.
         """
         self._collect_power = self._validate_bool(value=value, field_name="collect_power")
 
@@ -966,6 +1015,10 @@ class SystemInfoConfig:
         -----------
         value : bool
             Whether temperature information should be collected.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a boolean.
         """
         self._collect_temperature = self._validate_bool(value=value, field_name="collect_temperature")
 
@@ -996,6 +1049,11 @@ class SystemInfoConfig:
         --------
         SystemInfoConfig
             A validated system information configuration.
+
+        Raises:
+        -------
+        TypeError
+            If the provided system information configuration is not a dictionary.
         """
         if data is None:
             return SystemInfoConfig(collect_gpu=True, collect_power=True, collect_temperature=True)
@@ -1022,6 +1080,10 @@ class SystemInfoConfig:
         --------
         bool
             The validated boolean value.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a boolean.
         """
         if not isinstance(value, bool):
             raise TypeError(f"The provided '{field_name}' value must be a boolean.")
@@ -1078,6 +1140,11 @@ class OutputConfig:
         -----------
         value : Path
             Directory where benchmark reports must be written.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an instance of Path.
         """
         if not isinstance(value, Path):
             raise TypeError("The provided 'directory' value must be an instance of Path.")
@@ -1102,6 +1169,12 @@ class OutputConfig:
         -----------
         value : List[str]
             Report formats to generate.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a list or contains non-string items.
+        ConfigError
+            If the provided value is empty or contains invalid items, unsupported formats, or duplicates.
         """
         if not isinstance(value, list):
             raise TypeError("The provided 'formats' value must be a list.")
@@ -1138,6 +1211,10 @@ class OutputConfig:
         -----------
         value : bool
             Whether timestamped output paths should be used.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a boolean.
         """
         if not isinstance(value, bool):
             raise TypeError("The provided 'use_timestamp' value must be a boolean.")
@@ -1170,6 +1247,13 @@ class OutputConfig:
         --------
         OutputConfig
             A validated output configuration.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a dictionary, or if the 'directory' field is not a string.
+        ConfigError
+            If required fields are missing in the output configuration.
         """
         if not isinstance(data, dict):
             raise TypeError("The provided output configuration must be a dictionary.")
@@ -1245,6 +1329,11 @@ class Config:
         -----------
         value : BenchmarkConfig
             Benchmark execution configuration.
+        
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an instance of BenchmarkConfig.
         """
         if not isinstance(value, BenchmarkConfig):
             raise TypeError("The provided 'benchmark' value must be an instance of BenchmarkConfig.")
@@ -1269,6 +1358,10 @@ class Config:
         -----------
         value : SystemInfoConfig
             System information collection configuration.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an instance of SystemInfoConfig.
         """
         if not isinstance(value, SystemInfoConfig):
             raise TypeError("The provided 'system_info' value must be an instance of SystemInfoConfig.")
@@ -1293,6 +1386,10 @@ class Config:
         -----------
         value : OutputConfig
             Benchmark output configuration.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an instance of OutputConfig.
         """
         if not isinstance(value, OutputConfig):
             raise TypeError("The provided 'output' value must be an instance of OutputConfig.")
@@ -1317,6 +1414,10 @@ class Config:
         -----------
         value : Optional[Path]
             Optional YAML source path.
+        Raises:
+        -------
+        TypeError
+            If the provided value is not an instance of Path or None.
         """
         if value is not None and not isinstance(value, Path):
             raise TypeError("The provided 'source_path' value must be an instance of Path or None.")
@@ -1352,6 +1453,13 @@ class Config:
         --------
         Config
             A validated root configuration.
+
+        Raises:
+        -------
+        TypeError
+            If the provided value is not a dictionary.
+        ConfigError
+            If required fields are missing in the root configuration.
         """
         if not isinstance(data, dict):
             raise TypeError("The provided root configuration must be a dictionary.")
