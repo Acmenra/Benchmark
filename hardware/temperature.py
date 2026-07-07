@@ -1,3 +1,0 @@
-# hardware/temperature.py
-
-
