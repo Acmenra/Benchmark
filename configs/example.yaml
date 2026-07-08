@@ -1,2 +1,34 @@
-put here your configs
+benchmark:
+  runs:
+    - models:
+        - family: yolov8
+          sizes: [n, s, m]
+    - models:
+        - family: yolov11
+          sizes: [n, s]
 
+  formats:
+    - pytorch
+    - onnx
+    - tensorrt
+    - openvino
+
+  input_size: 640
+  batch_size: 1
+  warmup_iterations: 10
+  main_iterations: 100
+  confidence_threshold: 0.25
+  test_images: "./data/test_images"
+
+output:
+  directory: "./results"
+  formats:
+    - json
+    - csv
+    - markdown
+  timestamp: true
+
+system_info:
+  collect_gpu: true
+  collect_power: true
+  collect_temperature: true
