@@ -1,6 +1,25 @@
-def main() -> None:
-    pass
+# main.py
 
+from application.cli import parse_config_path
+from configs.config import read_yaml
+from infrastructure.hardware.collector import HardwareCollector
+from reporter import Reporter
+
+
+def main() -> None:
+    config_path = parse_config_path()
+    config = read_yaml(config_path)
+    
+    reporter = Reporter(config.output)
+
+    if config.system_info:
+        collector = HardwareCollector(config.system_info)
+        system_info = collector.get_system_info()
+        reporter.report(system_info)
+
+    if config.benchmark:
+        ...
+        reporter.report(...)  
 
 if __name__ == '__main__':
     main()

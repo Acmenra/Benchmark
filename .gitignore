@@ -38,7 +38,7 @@ htmlcov/
 .ipynb_checkpoints
 *.ipynb
 
-models/
+# models/
 *.pt
 *.pth
 *.onnx
@@ -84,5 +84,5 @@ site/
 *.bak
 *.backup
 *.orig
-test_*.py
+# test_*.py
 debug_*.py
