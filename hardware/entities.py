@@ -56,20 +56,6 @@ class TemperatureInfo:
 
 
 @dataclass(slots=True, frozen=True)
-class PowerInfo:
-    """Информация об энергопотреблении компонентов.
-
-    Attributes:
-        cpu_watts (flaot | None): Потребляемая мощность процессора в ваттах.
-        gpu_watts (float | None): Потребляемая мощность видеокарты в ваттах.
-    """
-
-    cpu_watts: float | None
-    gpu_watts: float | None
-    ...
-
-
-@dataclass(slots=True, frozen=True)
 class OSInfo:
     """Информация об операционной системе.
 
@@ -100,7 +86,6 @@ class SystemInfo:
         gpu (GPUInfo | None): Информация о графическом процессоре.
         os (OSInfo | None): Информация об операционной системе.
         temperature (TemperatureInfo | None): Информация о температурах компонентов системы.
-        power (PowerInfo | None): Информация об энергопотреблении компонентов системы.
     """
         
     platform: HardwarePlatform | None
@@ -110,6 +95,5 @@ class SystemInfo:
     gpu: GPUInfo | None 
     os: OSInfo | None
     temperature: TemperatureInfo | None
-    power: PowerInfo | None
     
     ...
