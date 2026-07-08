@@ -1,3 +1,5 @@
+# hardware/entities.py
+
 from dataclasses import dataclass
 
 from hardware.enums import HardwarePlatform

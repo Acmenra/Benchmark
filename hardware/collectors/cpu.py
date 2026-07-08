@@ -1,3 +1,5 @@
+# hardware/collectors/cpu.py
+
 from hardware.entities import CPUInfo
 
 # смотреть hardware/entities.py,

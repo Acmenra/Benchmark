@@ -1,3 +1,5 @@
+# hardware/collectors/operating_system.py
+
 from hardware.entities import OSInfo
 
 
