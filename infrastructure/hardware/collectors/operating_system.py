@@ -2,7 +2,7 @@
 
 import platform
 
-from hardware.entities import OSInfo
+from infrastructure.hardware.entities import OSInfo
 
 
 def collect_os() -> OSInfo:

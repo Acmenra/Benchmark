@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from hardware.enums import HardwarePlatform
+from infrastructure.hardware.enums import HardwarePlatform
 
 
 @dataclass(slots=True, frozen=True)

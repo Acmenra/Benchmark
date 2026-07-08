@@ -1,11 +1,11 @@
 # hardware/collector.py
 
-from config import SystemInfoConfig
-from hardware.collectors.cpu import collect_cpu
-from hardware.entities import SystemInfo
-from hardware.enums import HardwarePlatform
-from hardware.collectors.gpu import collect_gpu
-from hardware.collectors.operating_system import collect_os
+from configs.config import SystemInfoConfig
+from infrastructure.hardware.collectors.cpu import collect_cpu
+from infrastructure.hardware.entities import SystemInfo
+from infrastructure.hardware.enums import HardwarePlatform
+from infrastructure.hardware.collectors.gpu import collect_gpu
+from infrastructure.hardware.collectors.operating_system import collect_os
 
 
 class HardwareCollector:

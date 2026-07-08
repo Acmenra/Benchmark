@@ -4,7 +4,7 @@ import sys
 import pytest
 from pathlib import Path
 
-from cli import parse_config_path
+from application.cli import parse_config_path
 
 
 def test_parse_config_path_valid(monkeypatch):

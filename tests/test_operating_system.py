@@ -1,5 +1,5 @@
-from hardware.collectors.operating_system import _empty_to_none, collect_os
-from hardware.entities import OSInfo
+from infrastructure.hardware.collectors.operating_system import _empty_to_none, collect_os
+from infrastructure.hardware.entities import OSInfo
 
 
 def test_collect_os_returns_os_info() -> None:
