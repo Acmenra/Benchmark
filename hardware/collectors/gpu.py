@@ -1,3 +1,6 @@
+# hardware/collectors/gpu.py
+
+
 from hardware.entities import GPUInfo
 
 # смотреть hardware/entities.py,

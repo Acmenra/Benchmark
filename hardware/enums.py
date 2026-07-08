@@ -1,3 +1,5 @@
+# hardware/enums.py
+
 from enum import StrEnum
 
 

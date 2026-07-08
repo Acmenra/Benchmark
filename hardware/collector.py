@@ -1,3 +1,5 @@
+# hardware/collector.py
+
 from config import SystemInfoConfig
 from hardware.collectors.cpu import collect_cpu
 from hardware.entities import SystemInfo
