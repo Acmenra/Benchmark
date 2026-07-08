@@ -1,7 +1,4 @@
-import builtins
-
 from hardware.collectors.cpu import (
-    _collect_cpu_name_from_cpuinfo,
     _empty_to_none,
     _is_cpu_name_line,
     collect_cpu,
