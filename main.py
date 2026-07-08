@@ -1,6 +1,8 @@
-from cli import parse_config_path
-from config import read_yaml
-from hardware.collector import HardwareCollector
+# main.py
+
+from application.cli import parse_config_path
+from configs.config import read_yaml
+from infrastructure.hardware.collector import HardwareCollector
 from reporter import Reporter
 
 
