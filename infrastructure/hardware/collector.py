@@ -1,4 +1,4 @@
-# hardware/collector.py
+# infrastructure/hardware/collector.py
 
 from configs.config import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu import collect_cpu

@@ -1,3 +1,5 @@
+# infrastructure/hardware/collectors/temperature.py
+
 import os
 import platform
 import subprocess

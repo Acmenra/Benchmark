@@ -1,5 +1,4 @@
-# hardware/collectors/gpu.py
-
+# infrastructure/hardware/collectors/gpu.py
 
 from core.entities.hardware import GPUInfo
 

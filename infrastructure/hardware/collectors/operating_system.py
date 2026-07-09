@@ -1,4 +1,4 @@
-# hardware/collectors/operating_system.py
+# # infrastructure/hardware/collectors/operating_system.py
 
 import platform
 
