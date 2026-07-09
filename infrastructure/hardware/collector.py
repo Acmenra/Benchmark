@@ -6,6 +6,7 @@ from infrastructure.hardware.entities import SystemInfo
 from infrastructure.hardware.enums import HardwarePlatform
 from infrastructure.hardware.collectors.gpu import collect_gpu
 from infrastructure.hardware.collectors.operating_system import collect_os
+from infrastructure.hardware.collectors.temperature import collect_temperature
 
 
 class HardwareCollector:
@@ -28,14 +29,16 @@ class HardwareCollector:
         cpu = collect_cpu() if ... else None
         gpu = collect_gpu() if self.system_info_config.collect_gpu else None
         os = collect_os() if ... else None
+        temperature = collect_temperature() if self.system_info_config.collect_temperature else None
         ...
         
         raise NotImplementedError()
     
         return SystemInfo(
-            HardwarePlatform.UNKNOWN,
-            '',
+            platform=HardwarePlatform.UNKNOWN,
+            device_name='',
             cpu=cpu,
             gpu=gpu,
             os=os,
+            temperature=temperature,
         )

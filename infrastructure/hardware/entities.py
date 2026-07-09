@@ -42,17 +42,15 @@ class GPUInfo:
 
 
 @dataclass(slots=True, frozen=True)
-class TemperatureInfo:
-    """Информация о температурах компонентов системы.
-
+class TemperatureCapabilitiesInfo:
+    """Информация о доступности датчиков температуры на системе.
+    
     Attributes:
-        cpu_celsius (flaot | None): Температура процессора в градусах Цельсия.
-        gpu_celsius (flaot | None): Температура видеокарты в градусах Цельсия.
+        cpu_sensor_available (bool): True, если система может снимать показания температуры процессора. 
+        gpu_sensor_available (bool): True, если система может снимать показания температуры видеокарты.
     """
-
-    cpu_celsius: float | None
-    gpu_celsius: float | None
-    ...
+    cpu_sensor_available: bool
+    gpu_sensor_available: bool
 
 
 @dataclass(slots=True, frozen=True)
@@ -85,7 +83,7 @@ class SystemInfo:
         cpu (CPUInfo | None): Информация о центральном процессоре.
         gpu (GPUInfo | None): Информация о графическом процессоре.
         os (OSInfo | None): Информация об операционной системе.
-        temperature (TemperatureInfo | None): Информация о температурах компонентов системы.
+        temperature (TemperatureCapabilitiesInfo | None): Информация о доступности датчиков температуры.
     """
         
     platform: HardwarePlatform | None
@@ -94,6 +92,6 @@ class SystemInfo:
     cpu: CPUInfo | None
     gpu: GPUInfo | None 
     os: OSInfo | None
-    temperature: TemperatureInfo | None
+    temperature: TemperatureCapabilitiesInfo | None
     
     ...
