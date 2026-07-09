@@ -5,7 +5,7 @@ from pathlib import Path
 
 import psutil
 
-from infrastructure.hardware.entities import CPUInfo
+from core.entities.hardware import CPUInfo
 
 
 def collect_cpu() -> CPUInfo:

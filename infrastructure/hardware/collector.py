@@ -2,8 +2,8 @@
 
 from configs.config import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu import collect_cpu
-from infrastructure.hardware.entities import SystemInfo
-from infrastructure.hardware.enums import HardwarePlatform
+from core.entities.hardware import SystemInfo
+from core.enums.hardware import HardwarePlatform
 from infrastructure.hardware.collectors.gpu import collect_gpu
 from infrastructure.hardware.collectors.operating_system import collect_os
 from infrastructure.hardware.collectors.temperature import collect_temperature

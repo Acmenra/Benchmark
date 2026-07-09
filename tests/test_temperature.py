@@ -6,7 +6,7 @@ from infrastructure.hardware.collectors.temperature import (
     _check_cpu_temperature_available,
     _check_gpu_temperature_available,
 )
-from infrastructure.hardware.entities import TemperatureCapabilitiesInfo
+from core.entities.hardware import TemperatureCapabilitiesInfo
 
 
 def test_collect_temperature_returns_temperature_capabilities_info() -> None:

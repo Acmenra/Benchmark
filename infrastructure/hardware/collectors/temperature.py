@@ -2,7 +2,7 @@ import os
 import platform
 import subprocess
 
-from infrastructure.hardware.entities import TemperatureCapabilitiesInfo
+from core.entities.hardware import TemperatureCapabilitiesInfo
 
 
 def collect_temperature() -> TemperatureCapabilitiesInfo:
