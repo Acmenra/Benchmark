@@ -1,4 +1,4 @@
-# application/__init__.py
+# application/inference/__init__.py
 
 import logging
 

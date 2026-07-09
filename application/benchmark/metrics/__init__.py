@@ -1,4 +1,4 @@
-# application/__init__.py
+# application/metrics/__init__.py
 
 import logging
 
