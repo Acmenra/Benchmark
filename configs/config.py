@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from configs_validator import ConfigError, ConfigsValidator
+from configs.configs_validator import ConfigError, ConfigsValidator
 
 
 class _ConfigBase:
@@ -82,6 +82,8 @@ class Config(_ConfigBase):
 
 def to_plain_dict(value: Any) -> Any:
     """Преобразует dataclass-объекты и вложенные структуры в словари."""
+    if isinstance(value, Path):
+        return str(value)
     if isinstance(value, dict):
         return {k: to_plain_dict(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -101,7 +103,10 @@ def read_yaml(path: Path | str) -> Config:
         raise FileNotFoundError(path)
 
     with path.open("r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle) or {}
+        try:
+            raw = yaml.safe_load(handle) or {}
+        except yaml.YAMLError as e:
+            raise ConfigError(f"Invalid YAML: {e}") from e
 
     if not isinstance(raw, dict):
         raise ConfigError("YAML root must be a mapping")

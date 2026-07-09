@@ -54,5 +54,3 @@ class ConfigsValidator:
                 if not isinstance(size, str) or not size:
                     raise ConfigError(f"{field_name} entry size must be a non-empty string")
                 models.append({"family": family, "size": size})
-
-        return tuple(models)
