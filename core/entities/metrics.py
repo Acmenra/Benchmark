@@ -13,7 +13,7 @@ class DataPoint:
 class MetricStatistics:
     def __init__(self, unit: str | None = None) -> None:
         self.history: list[DataPoint] = []
-        self.unit: str | None = unit # Возможно стоит сделать enum 
+        self.unit: str | None = unit
 
     @property
     def minimum(self):

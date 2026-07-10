@@ -3,7 +3,7 @@
 from configs.config import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu import collect_cpu
 from core.entities.hardware import SystemInfo
-from core.enums.hardware import HardwarePlatform
+from core.enums.hardware import PlatformType
 from infrastructure.hardware.collectors.gpu import collect_gpu
 from infrastructure.hardware.collectors.operating_system import collect_os
 from infrastructure.hardware.collectors.temperature import collect_temperature
@@ -35,7 +35,7 @@ class HardwareCollector:
         raise NotImplementedError()
     
         return SystemInfo(
-            platform=HardwarePlatform.UNKNOWN,
+            platform=PlatformType.UNKNOWN,
             device_name='',
             cpu=cpu,
             gpu=gpu,

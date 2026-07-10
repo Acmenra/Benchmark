@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from core.enums.hardware import HardwarePlatform
+from core.enums.hardware import PlatformType
 
 
 @dataclass(slots=True, frozen=True)
@@ -86,7 +86,7 @@ class SystemInfo:
         temperature (TemperatureCapabilitiesInfo | None): Информация о доступности датчиков температуры.
     """
         
-    platform: HardwarePlatform | None
+    platform: PlatformType | None
     device_name: str | None
     
     cpu: CPUInfo | None
