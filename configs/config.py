@@ -97,7 +97,7 @@ def to_plain_dict(value: Any) -> Any:
 
 
 def read_yaml(path: Path | str) -> Config:
-    """Загружает и разбирает YAML-конфиг на неизменяемые структуры."""
+    """Загружает YAML-конфиг и возвращает объект конфигурации после валидации."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
@@ -108,75 +108,45 @@ def read_yaml(path: Path | str) -> Config:
         except yaml.YAMLError as e:
             raise ConfigError(f"Invalid YAML: {e}") from e
 
-    if not isinstance(raw, dict):
-        raise ConfigError("YAML root must be a mapping")
+    schema = ConfigsValidator.validate(raw)
 
-    benchmark_data = raw.get("benchmark")
+    benchmark_data = schema.benchmark
     benchmark: BenchmarkConfig | None = None
     if benchmark_data is not None:
-        if not isinstance(benchmark_data, dict):
-            raise ConfigError("benchmark must be a mapping")
-
-        runs_data = benchmark_data.get("runs", [])
-        if not isinstance(runs_data, list):
-            raise ConfigError("benchmark.runs must be a list")
-
         runs = []
-        for run_data in runs_data:
-            if not isinstance(run_data, dict):
-                raise ConfigError("each benchmark run must be a mapping")
-            raw_models = ConfigsValidator.parse_models(
-                run_data.get("models", []),
-                field_name="benchmark.run.models",
-            )
+        for run_data in benchmark_data.runs:
             models = tuple(
-                ModelConfig(size=item["size"], family=item["family"])
-                for item in raw_models
+                ModelConfig(size=size, family=model.family)
+                for model in run_data.models
+                for size in model.sizes
             )
             runs.append(BenchmarkRun(models=models))
 
         benchmark = BenchmarkConfig(
             runs=tuple(runs),
-            formats=ConfigsValidator.validate_str_list(
-                benchmark_data.get("formats"),
-                field_name="benchmark.formats",
-            ),
-            input_size=benchmark_data.get("input_size"),
-            batch_size=benchmark_data.get("batch_size"),
-            warmup_iterations=benchmark_data.get("warmup_iterations"),
-            main_iterations=benchmark_data.get("main_iterations"),
-            confidence_threshold=benchmark_data.get("confidence_threshold"),
-            test_images=benchmark_data.get("test_images"),
+            formats=tuple(benchmark_data.formats),
+            input_size=benchmark_data.input_size,
+            batch_size=benchmark_data.batch_size,
+            warmup_iterations=benchmark_data.warmup_iterations,
+            main_iterations=benchmark_data.main_iterations,
+            confidence_threshold=benchmark_data.confidence_threshold,
+            test_images=benchmark_data.test_images,
         )
 
-    output_data = raw.get("output")
-    if output_data is None:
-        raise ConfigError("output section is required")
-    if not isinstance(output_data, dict):
-        raise ConfigError("output must be a mapping")
+    output_data = schema.output
+    output = OutputConfig(
+        directory=Path(output_data.directory),
+        formats=tuple(output_data.formats),
+        use_timestamp=bool(output_data.use_timestamp),
+    )
 
-    directory = output_data.get("directory", "./results")
-    if not isinstance(directory, str) or not directory:
-        raise ConfigError("output.directory must be a non-empty string")
-
-    system_info_data = raw.get("system_info")
+    system_info_data = schema.system_info
     system_info = None
     if system_info_data is not None:
-        if not isinstance(system_info_data, dict):
-            raise ConfigError("system_info must be a mapping")
         system_info = SystemInfoConfig(
-            collect_gpu=bool(system_info_data.get("collect_gpu", False)),
-            collect_power=bool(system_info_data.get("collect_power", False)),
-            collect_temperature=bool(system_info_data.get("collect_temperature", False)),
+            collect_gpu=bool(system_info_data.collect_gpu),
+            collect_power=bool(system_info_data.collect_power),
+            collect_temperature=bool(system_info_data.collect_temperature),
         )
-
-    output = OutputConfig(
-        directory=Path(directory),
-        formats=ConfigsValidator.validate_str_list(
-            output_data.get("formats"),
-            field_name="output.formats",
-        ),
-        use_timestamp=bool(output_data.get("timestamp", output_data.get("use_timestamp", False))),
-    )
 
     return Config(benchmark=benchmark, system_info=system_info, output=output)

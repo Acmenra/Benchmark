@@ -416,6 +416,31 @@ class TestReadYaml(unittest.TestCase):
         finally:
             temp_path.unlink(missing_ok=True)
 
+    def test_model_with_both_size_and_sizes_is_rejected(self) -> None:
+        """Конфиг с одновременно заданными size и sizes должен валидироваться как ошибка."""
+        yaml_content = """
+        benchmark:
+          runs:
+            - models:
+                - family: llama
+                  size: 7b
+                  sizes: ["13b"]
+        output:
+          directory: ./results
+          formats:
+            - json
+          timestamp: false
+        """
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+            f.write(yaml_content)
+            temp_path = Path(f.name)
+
+        try:
+            with self.assertRaises(ConfigError):
+                read_yaml(temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
     def test_missing_output_section(self) -> None:
         """Отсутствие output вызывает ошибку"""
         yaml_content = """
