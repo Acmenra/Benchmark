@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 
 class MetricCollector(ABC):
-    """Базовый класс для сборщиков метрик."""
+    """Базовый класс для оркестраторов сборщиков метрик."""
     
     @abstractmethod
     def collect(self) -> ...:
