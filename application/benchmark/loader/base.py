@@ -1,13 +1,11 @@
 # infrastucture/models/loader.py
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class BaseModelLoader(ABC):
     """Абстрактный базовый класс загрузчика модели."""
-
-    def __init__(self, ) -> None:
-        ...
 
     @property
     @abstractmethod
@@ -15,7 +13,7 @@ class BaseModelLoader(ABC):
         """Вернуть имя формата загрузчика."""
 
     @abstractmethod
-    def load(self) -> None:
+    def load(self) -> Any:
         """Загрузить модель или исполняемый движок в память."""
 
     @abstractmethod
