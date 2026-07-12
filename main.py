@@ -16,12 +16,18 @@ def main() -> None:
     if config.system_info:
         collector = HardwareCollector(config.system_info)
         system_info = collector.get_system_info()
-        reporter.report(system_info)
+        reporter.report(system_info) # По итогу имеем "отчет" с инфой о железе
 
     if config.benchmark:
+<<<<<<< Updated upstream
         runner = BenchmarkRunner(config.benchmark)
         results = runner.run_suite()
         reporter.report(results)  
+=======
+        results = runner.run_suite()
+        reporter.report(results)
+
+>>>>>>> Stashed changes
 
 if __name__ == '__main__':
     main()

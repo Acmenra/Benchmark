@@ -2,6 +2,6 @@ from application.benchmark.metrics.base import MetricCollector
 from core.entities.metrics import HardwareMetrics
 
 
-class HardwareMetricsCollector(MetricCollector):
+class HardwareMetricsCollector(MetricCollector): # TODO доделать
     def collect(self) -> HardwareMetrics:
         raise NotImplementedError()
