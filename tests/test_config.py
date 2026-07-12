@@ -54,7 +54,7 @@ class TestBenchmarkRun(unittest.TestCase):
         """Инициализация с одной моделью"""
         model = ModelConfig(family="yolov8", size="n")
         run = BenchmarkRun(models=(model,))
-        self.assertEqual(run.model_names, ["yolov8-n"])
+        self.assertEqual(run.model_names, ("yolov8-n",))
 
     def test_init_multiple_models(self) -> None:
         """Инициализация с несколькими моделями"""
@@ -63,12 +63,12 @@ class TestBenchmarkRun(unittest.TestCase):
             ModelConfig(family="yolov11", size="s"),
         )
         run = BenchmarkRun(models=models)
-        self.assertEqual(run.model_names, ["yolov8-n", "yolov11-s"])
+        self.assertEqual(run.model_names, ("yolov8-n", "yolov11-s"))
 
     def test_init_empty_models(self) -> None:
         """Пустой кортеж моделей допустим"""
         run = BenchmarkRun(models=())
-        self.assertEqual(run.model_names, [])
+        self.assertEqual(run.model_names, ())
 
     def test_to_dict(self) -> None:
         """Сериализация в словарь"""
@@ -347,7 +347,7 @@ class TestReadYaml(unittest.TestCase):
           runs:
             - models:
                 - family: yolov8
-                  size: n
+                  sizes: [n]
           formats:
             - pytorch
             - onnx
@@ -416,15 +416,14 @@ class TestReadYaml(unittest.TestCase):
         finally:
             temp_path.unlink(missing_ok=True)
 
-    def test_model_with_both_size_and_sizes_is_rejected(self) -> None:
-        """Конфиг с одновременно заданными size и sizes должен валидироваться как ошибка."""
+    def test_model_with_size_is_rejected(self) -> None:
+        """Конфиг с полем size должен валидироваться как ошибка."""
         yaml_content = """
         benchmark:
           runs:
             - models:
                 - family: llama
                   size: 7b
-                  sizes: ["13b"]
         output:
           directory: ./results
           formats:
@@ -448,7 +447,7 @@ class TestReadYaml(unittest.TestCase):
           runs:
             - models:
                 - family: yolov8
-                  size: n
+                  sizes: [n]
         """
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
             f.write(yaml_content)

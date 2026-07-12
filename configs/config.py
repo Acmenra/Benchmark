@@ -35,8 +35,8 @@ class BenchmarkRun(_ConfigBase):
     models: tuple[ModelConfig, ...]
 
     @property
-    def model_names(self) -> list[str]:
-        return [model.name for model in self.models]
+    def model_names(self) -> tuple[str, ...]:
+        return tuple(model.name for model in self.models)
 
 
 @dataclass(slots=True, frozen=True)
@@ -96,6 +96,23 @@ def to_plain_dict(value: Any) -> Any:
     return value
 
 
+def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
+    """Преобразует схему benchmark в dataclass BenchmarkConfig."""
+    runs = []
+    for run_data in benchmark_data.runs:
+        models = tuple(
+            ModelConfig(size=size, family=model.family)
+            for model in run_data.models
+            for size in model.sizes
+        )
+        runs.append(BenchmarkRun(models=models))
+
+    payload = benchmark_data.model_dump(exclude={"runs", "formats"})
+    payload["runs"] = tuple(runs)
+    payload["formats"] = tuple(benchmark_data.formats)
+    return BenchmarkConfig(**payload)
+
+
 def read_yaml(path: Path | str) -> Config:
     """Загружает YAML-конфиг и возвращает объект конфигурации после валидации."""
     path = Path(path)
@@ -113,40 +130,22 @@ def read_yaml(path: Path | str) -> Config:
     benchmark_data = schema.benchmark
     benchmark: BenchmarkConfig | None = None
     if benchmark_data is not None:
-        runs = []
-        for run_data in benchmark_data.runs:
-            models = tuple(
-                ModelConfig(size=size, family=model.family)
-                for model in run_data.models
-                for size in model.sizes
-            )
-            runs.append(BenchmarkRun(models=models))
-
-        benchmark = BenchmarkConfig(
-            runs=tuple(runs),
-            formats=tuple(benchmark_data.formats),
-            input_size=benchmark_data.input_size,
-            batch_size=benchmark_data.batch_size,
-            warmup_iterations=benchmark_data.warmup_iterations,
-            main_iterations=benchmark_data.main_iterations,
-            confidence_threshold=benchmark_data.confidence_threshold,
-            test_images=benchmark_data.test_images,
-        )
+        benchmark = _build_benchmark_config(benchmark_data)
 
     output_data = schema.output
     output = OutputConfig(
         directory=Path(output_data.directory),
         formats=tuple(output_data.formats),
-        use_timestamp=bool(output_data.use_timestamp),
+        use_timestamp=output_data.use_timestamp,
     )
 
     system_info_data = schema.system_info
     system_info = None
     if system_info_data is not None:
         system_info = SystemInfoConfig(
-            collect_gpu=bool(system_info_data.collect_gpu),
-            collect_power=bool(system_info_data.collect_power),
-            collect_temperature=bool(system_info_data.collect_temperature),
+            collect_gpu=system_info_data.collect_gpu,
+            collect_power=system_info_data.collect_power,
+            collect_temperature=system_info_data.collect_temperature,
         )
 
     return Config(benchmark=benchmark, system_info=system_info, output=output)

@@ -13,7 +13,6 @@ class _ModelInputSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     family: str
-    size: str | None = None
     sizes: list[str] | None = None
 
     @field_validator("family")
@@ -21,15 +20,6 @@ class _ModelInputSchema(BaseModel):
     def validate_family(cls, value: str) -> str:
         if not value or not value.strip():
             raise ValueError("family must be a non-empty string")
-        return value.strip()
-
-    @field_validator("size")
-    @classmethod
-    def validate_size(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value or not value.strip():
-            raise ValueError("size must be a non-empty string")
         return value.strip()
 
     @field_validator("sizes")
@@ -45,13 +35,8 @@ class _ModelInputSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_size_presence(self) -> "_ModelInputSchema":
-        if self.size is not None and self.sizes is not None:
-            raise ValueError("entry must contain either size or sizes, not both")
-        if self.size is None and self.sizes is None:
-            raise ValueError("entry must contain size or sizes")
-        if self.size is not None:
-            self.sizes = [self.size]
-            self.size = None
+        if self.sizes is None:
+            raise ValueError("entry must contain sizes")
         return self
 
 
