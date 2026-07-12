@@ -1,11 +1,34 @@
 import os
 import platform
 import subprocess
+import time
 from pathlib import Path
 
 import psutil
 
 from core.entities.hardware import CPUInfo
+from core.entities.metrics import DataPoint, HardwareMetrics, MetricStatistics
+from infrastructure.hardware.collectors.base import BaseCollector
+
+
+class CPUCollector(BaseCollector):
+    """Сборщик статической информации и runtime-метрик CPU."""
+
+    def get_hardware_info(self) -> CPUInfo:
+        """Возвращает статическую информацию о процессоре."""
+        return collect_cpu()
+
+    def get_metrics(self) -> HardwareMetrics:
+        """Возвращает загрузку процессора."""
+        cpu_utilization = MetricStatistics(unit="percent")
+        cpu_utilization.history.append(
+            DataPoint(
+                time_in_ms=int(time.time() * 1000),
+                value=psutil.cpu_percent(interval=0.1),
+            )
+        )
+
+        return HardwareMetrics(cpu_utilization=cpu_utilization)
 
 
 def collect_cpu() -> CPUInfo:
