@@ -1,6 +1,6 @@
 # reporter.py
 
-from configs.config import OutputConfig
+from core.entities.config import OutputConfig
 
 # data должна быть классом и с помощью обхода его полей формировать файл.
 # Делать обход с помощью vars или __dict__ (лучше vars)

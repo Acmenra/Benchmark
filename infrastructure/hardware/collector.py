@@ -1,6 +1,6 @@
 # infrastructure/hardware/collector.py
 
-from configs.config import SystemInfoConfig
+from core.entities.config import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu import collect_cpu
 from core.entities.hardware import SystemInfo
 from core.enums.hardware import PlatformType

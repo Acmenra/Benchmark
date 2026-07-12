@@ -4,7 +4,7 @@
 
 from abc import ABC, abstractmethod
 
-from configs.config import SystemInfoConfig
+from core.entities.config import SystemInfoConfig
 
 # будет контрактом для cpu, gpu, power, temperature
 class BaseCollector(ABC):

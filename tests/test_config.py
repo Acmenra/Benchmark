@@ -3,18 +3,10 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from configs.config_reader import read_yaml
+from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig, to_plain_dict
 from ddt import data, ddt, unpack
 
-from configs.config import (
-    BenchmarkConfig,
-    BenchmarkRun,
-    Config,
-    ModelConfig,
-    OutputConfig,
-    SystemInfoConfig,
-    read_yaml,
-    to_plain_dict,
-)
 from configs.configs_validator import ConfigError
 
 
