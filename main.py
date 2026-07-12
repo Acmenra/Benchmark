@@ -2,7 +2,7 @@
 
 from application.benchmark.runner import BenchmarkRunner
 from application.cli import parse_config_path
-from configs.config_reader import read_yaml
+from infrastructure.config.config_reader import read_yaml
 from infrastructure.hardware.collector import HardwareCollector
 from reporter import Reporter
 

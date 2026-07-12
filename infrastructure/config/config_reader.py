@@ -3,7 +3,7 @@ from typing import Any
 
 import yaml
 
-from configs.configs_validator import ConfigError, ConfigsValidator
+from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
 from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig
 
 
