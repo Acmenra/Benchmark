@@ -1,4 +1,4 @@
-# application/benchmark/__init__.py
+# application/__init__.py
 
 import logging
 

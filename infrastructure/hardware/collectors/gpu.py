@@ -1,7 +1,6 @@
-# hardware/collectors/gpu.py
+# infrastructure/hardware/collectors/gpu.py
 
-
-from infrastructure.hardware.entities import GPUInfo
+from core.entities.hardware import GPUInfo
 
 # смотреть hardware/entities.py,
 # примерная реализация лежит в hardware/CHECK_THIS.PY

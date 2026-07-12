@@ -1,8 +1,8 @@
-# hardware/collectors/operating_system.py
+# # infrastructure/hardware/collectors/operating_system.py
 
 import platform
 
-from infrastructure.hardware.entities import OSInfo
+from core.entities.hardware import OSInfo
 
 
 def collect_os() -> OSInfo:

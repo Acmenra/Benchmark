@@ -1,16 +1,19 @@
-# misc/enums.py
+# core/enums/enums.py
 
 import logging
-from enum import Enum, EnumType
-
+from enum import Enum
+from acmenra_cv import (
+    DeviceType as _DeviceType, 
+    TaskType as _TaskType
+)
 
 logger = logging.getLogger(__name__)
 
 
-class TaskType(Enum): ... # TODO тянем с acmenra-cv
+TaskType = _TaskType 
 
 
-class DeviceType(Enum): ... # TODO тянем с acmenra-cv
+DeviceType = _DeviceType
 
 
 class QuantizationLevel(Enum):
@@ -26,20 +29,12 @@ class ExportTarget(Enum):
     RISC_V = 'risc_v'  # для будущих edge-чипов
 
 
+# reporter.py
 class ReportFormat(Enum):
     JSON = 'json'
     CSV = 'csv'
     MARKDOWN = 'markdown'
     HTML = 'html'
-
-
-class PlatformType(Enum):
-    DESKTOP = 'desktop'
-    JETSON = 'jetson'
-    RASPBERRY_PI = 'raspberry_pi'
-    INTEL_NUC = 'intel_nuc'
-    HAILO = 'hailo'
-    UNKNOWN = 'unknown'  # fallback для неопознанных систем
 
 
 class ModelFormat(Enum):

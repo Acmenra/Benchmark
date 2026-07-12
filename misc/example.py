@@ -17,7 +17,7 @@ from acmenra_cv import Font, Fill, Stroke, Style, Drawer, LabelPosition
 from acmenra_cv import Point, Obb, Box, Polygon, Instance, DeviceType, TaskType
 from acmenra_cv import Backend, YOLOBackend
 
-from misc.enums import Coco
+from core.enums.model import Coco
 
 
 

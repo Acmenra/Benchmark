@@ -1,5 +1,6 @@
 # main.py
 
+from application.benchmark.runner import BenchmarkRunner
 from application.cli import parse_config_path
 from configs.config import read_yaml
 from infrastructure.hardware.collector import HardwareCollector
@@ -18,8 +19,9 @@ def main() -> None:
         reporter.report(system_info)
 
     if config.benchmark:
-        ...
-        reporter.report(...)  
+        runner = BenchmarkRunner(config.benchmark)
+        results = runner.run_suite()
+        reporter.report(results)  
 
 if __name__ == '__main__':
     main()
