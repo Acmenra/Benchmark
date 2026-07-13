@@ -1,4 +1,4 @@
-# hardware/enums.py
+# core/enums/hardware.py
 
 from enum import Enum
 
