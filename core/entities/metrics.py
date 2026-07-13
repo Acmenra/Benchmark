@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from core.entities.config import BenchmarkRun
+
 # TODO не плохо было бы знать для каждой из метрик её минимальное, медианное, среднее и максимальное значение
 # TODO тогда можно будет "собрать" любую таблицу
 
@@ -71,8 +73,6 @@ class TemperatureMetrics:
     cpu_temperature: MetricStatistics | None = None
     gpu_temperature: MetricStatistics | None = None
 
-#Заглушка (потом создать рядом файл config, из config.py перенести туда все сущности)
-class BenchmarkRun: ...
 
 @dataclass(slots=True)
 class BenchmarkResult:
@@ -80,4 +80,4 @@ class BenchmarkResult:
     performance: PerformanceMetrics | None = None
     hardware: HardwareMetrics | None = None
     power: PowerMetrics | None = None
-    # TemperatureMetrics
+    temperature: TemperatureMetrics | None = None
