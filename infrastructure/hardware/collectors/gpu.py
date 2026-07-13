@@ -1,4 +1,5 @@
 # infrastructure/hardware/collectors/gpu.py
+
 from typing import Any
 
 from core.entities.hardware import GPUInfo

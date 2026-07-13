@@ -1,4 +1,4 @@
-# infrastructure\hardware\collectors\base.py
+# infrastructure/hardware/collectors/base.py
 # потом перенесу в interfaces
 
 

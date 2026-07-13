@@ -1,3 +1,5 @@
+# application/benchmark/metrics/cpu.py
+
 from application.benchmark.metrics.base import MetricCollector
 from core.entities.metrics import CPUMetrics
 

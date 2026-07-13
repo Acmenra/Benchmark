@@ -1,4 +1,4 @@
-# hardware/entities.py
+# core/entities/hardware.py
 
 from dataclasses import dataclass
 
