@@ -1,3 +1,5 @@
+# application/benchmark/runner.py
+
 """Слой оркестрации бенчмарка."""
 
 from acmenra_cv import YOLOBackend
@@ -77,20 +79,24 @@ class BenchmarkRunner:
         return collector.get()
     
     def _build_YOLObackend(self, family, size, format_) -> YOLOBackend:
-        path = family + size + '.' + format_
+        path = family + size + '.' + format_ # TODO  дак вы что принимаете и что выдаете? Вам же по сути в YOLOBackend
+        # TODO надо прост нужные параметры загнать, зачем переизобретать то велосипед
         model = YOLO(path) # TaskType
         device = DeviceType.AUTO
         task_type = TaskType.E
-        
-        backend = YOLOBackend(model, device, Coco, task_type)
-        model.benchmark
+        category=Coco
+
+        backend = YOLOBackend(model=model,
+                              device=device,
+                              category=category,
+                              task_type=task_type)
 
         return backend
     
     def _warmup(self) -> None:
         ...
 
-    def _count_cameras(self) -> int:
+    def _count_cameras(self) -> int: #
         idx = 0
 
         while True:

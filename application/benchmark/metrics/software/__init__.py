@@ -1,4 +1,4 @@
-# application/benchmark/metrics/softwere/__init__.py
+# application/benchmark/metrics/software/__init__.py
 
 import logging
 
