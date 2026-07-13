@@ -16,11 +16,6 @@ TaskType = _TaskType
 DeviceType = _DeviceType
 
 
-class QuantizationLevel(Enum):
-    FP32 = 'fp32'   # Полная точность, нет оптимизации
-    FP16 = 'fp16'   # Половинная точность, 2× ускорение на GPU
-    INT8 = 'int8'   # 8-битное квантование, 4× ускорение, потеря точности
-    INT4 = 'int4'   # 4-битное квантование, экспериментально
 
 
 class ExportTarget(Enum):
@@ -28,13 +23,18 @@ class ExportTarget(Enum):
     ARM64 = 'arm64'
     RISC_V = 'risc_v'  # для будущих edge-чипов
 
-
 # reporter.py
 class ReportFormat(Enum):
     JSON = 'json'
     CSV = 'csv'
     MARKDOWN = 'markdown'
     HTML = 'html'
+
+class QuantizationLevel(Enum):
+    FP32 = 'fp32'   # Полная точность, нет оптимизации
+    FP16 = 'fp16'   # Половинная точность, 2× ускорение на GPU
+    INT8 = 'int8'   # 8-битное квантование, 4× ускорение, потеря точности
+    INT4 = 'int4'   # 4-битное квантование, экспериментально
 
 
 class ModelFormat(Enum):
@@ -65,6 +65,7 @@ class ModelFamily(Enum):
     EFFICIENTDET = 'efficientdet'
 
 
+
 class MetricType(Enum):
     FPS = 'fps'
 
@@ -82,6 +83,13 @@ class MetricType(Enum):
     # Точность (если есть ground truth)
     MAP_50 = 'map_50'
     MAP_50_95 = 'map_50_95'
+
+class Metric(BaseMetric):
+    def __init__(self, uuid: uuid, counter: int, metric_type: MetricType):
+        uuid = uuid # Общий, полностью уникальный id
+        counter = counter # номер "прогона"
+        value = 0 # значение
+        self._metric_type = metric_type # тип значения
 
 
 class Coco(Enum):

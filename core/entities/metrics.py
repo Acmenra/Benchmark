@@ -1,3 +1,5 @@
+# core/entities/metrics.py
+
 from dataclasses import dataclass
 
 from core.entities.config import BenchmarkRun
@@ -5,15 +7,15 @@ from core.entities.config import BenchmarkRun
 # TODO не плохо было бы знать для каждой из метрик её минимальное, медианное, среднее и максимальное значение
 # TODO тогда можно будет "собрать" любую таблицу
 
-
+# TODO ljk;ty
 @dataclass
-class DataPoint:
+class DataPoint: # TODO значение чего-либо в данную ms
     time_in_ms: int
     value: float | int
 
 
-class MetricStatistics:
-    def __init__(self, unit: str | None = None) -> None:
+class MetricStatistics: # TODO сделать очередью, которая за O(1) пересчитывает значения
+    def __init__(self, unit: str | None = None) -> None: # TODO определить, что по итогу оно принимает это: "unit: str | None = None" или это: "DataPoint"
         self.history: list[DataPoint] = []
         self.unit: str | None = unit
 

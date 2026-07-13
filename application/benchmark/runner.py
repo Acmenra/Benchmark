@@ -15,7 +15,7 @@ class BenchmarkRunner:
 
     def __init__(self, benchmark_config: BenchmarkConfig) -> None:
         self.benchmark_config = benchmark_config
-        self.cameras_count = self._count_cameras()
+        self.cameras_count = self._count_cameras() # говорили, что есть возможность, но это не ключевое
 
     def run_suite(self) -> list[BenchmarkResult]:
         results = []

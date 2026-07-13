@@ -16,6 +16,22 @@ class BaseCollector(ABC):
         # потом при надобности можно еще собирать только определенные метрики 
         # MetricsConfig
 
+    @abstractmethod
+    def info(self) -> GPUInfo:
+        ...
+
+    @abstractmethod
+    def tmp(self) -> Any:
+        ...
+
+    @abstractmethod
+    def frq(self) -> Any:
+        ...
+
+    @abstractmethod
+    def prsnt(self) -> Any:
+        ...
+
     @abstractmethod 
     def get_hardware_info(self) -> ...: 
         """Возвращает статические данные о железе."""

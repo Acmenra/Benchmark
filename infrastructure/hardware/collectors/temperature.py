@@ -6,6 +6,7 @@ import subprocess
 
 from core.entities.hardware import TemperatureCapabilitiesInfo
 
+# TODO прибрать!
 
 def collect_temperature() -> TemperatureCapabilitiesInfo:
     """Определение доступности температурных датчиков на текущей системе."""

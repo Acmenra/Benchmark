@@ -11,8 +11,10 @@ from core.entities.metrics import DataPoint, HardwareMetrics, MetricStatistics
 from infrastructure.hardware.collectors.base import BaseCollector
 
 
-class CPUCollector(BaseCollector):
+class CPUCollector(BaseCollector): # TODO это единая точка правды о СPU
     """Сборщик статической информации и runtime-метрик CPU."""
+
+    # TDOO - оно инитается (как раз получение инфы о железе),
 
     def get_hardware_info(self) -> CPUInfo:
         """Возвращает статическую информацию о процессоре."""

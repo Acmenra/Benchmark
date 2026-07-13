@@ -5,7 +5,7 @@ from core.entities.config import BenchmarkRun
 from core.entities.metrics import BenchmarkResult
 
 
-class MetricsCollector:
+class MetricsCollector: # TODO собирает ВСЮ информацию за 1 запуск модели (конкретная модель, конкретный формат, конкретные параметры)
     def __init__(self, benchmark_run: BenchmarkRun) -> None:
         # Возможно потом нужно будет собирать только определенные метрики 
         # при помощи MetricsConfig
@@ -18,7 +18,7 @@ class MetricsCollector:
     def stop(self) -> None:
         ...
 
-    def get(self) -> BenchmarkResult:
+    def get(self) -> BenchmarkResult: # TODO отдает метрики "какие" (перечислить, прям по классово), лежит в application/benchmark/metrics
         ...
 
         return BenchmarkResult(

@@ -5,6 +5,7 @@ import platform
 from core.entities.hardware import OSInfo
 
 
+
 def collect_os() -> OSInfo:
     """
     Сбор базовой информации об операционной системе.
