@@ -2,7 +2,7 @@
 
 
 from core.entities.config import BenchmarkRun
-from core.entities.metrics import BenchmarkResult
+from core.entities.metrics import BenchmarkResult, HardwareMetrics, PerformanceMetrics, PowerMetrics
 
 
 class MetricsCollector: # TODO собирает ВСЮ информацию за 1 запуск модели (конкретная модель, конкретный формат, конкретные параметры)
@@ -10,13 +10,16 @@ class MetricsCollector: # TODO собирает ВСЮ информацию за
         # Возможно потом нужно будет собирать только определенные метрики 
         # при помощи MetricsConfig
         self.benchmark_run = benchmark_run
-        history = []
+        
+        self.performance = PerformanceMetrics()
+        self.hardware = HardwareMetrics()
+        self.power = PowerMetrics()
 
     def start(self) -> None:
-        ...
+        self.time = ... # текущее точное время
 
     def stop(self) -> None:
-        ...
+        delta = ... # self.time - current time время для latency
 
     def get(self) -> BenchmarkResult: # TODO отдает метрики "какие" (перечислить, прям по классово), лежит в application/benchmark/metrics
         ...

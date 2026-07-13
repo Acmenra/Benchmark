@@ -7,7 +7,7 @@ from pathlib import Path
 import psutil
 
 from core.entities.hardware import CPUInfo
-from core.entities.metrics import DataPoint, HardwareMetrics, MetricStatistics
+from core.entities.metrics import DataPoint, MetricStatistics
 from infrastructure.hardware.collectors.base import BaseCollector
 
 
@@ -20,7 +20,7 @@ class CPUCollector(BaseCollector): # TODO это единая точка пра�
         """Возвращает статическую информацию о процессоре."""
         return collect_cpu()
 
-    def get_metrics(self) -> HardwareMetrics:
+    def get_metrics(self) -> ...:
         """Возвращает загрузку процессора."""
         cpu_utilization = MetricStatistics(unit="percent")
         cpu_utilization.history.append(
@@ -30,7 +30,7 @@ class CPUCollector(BaseCollector): # TODO это единая точка пра�
             )
         )
 
-        return HardwareMetrics(cpu_utilization=cpu_utilization)
+        return cpu_utilization
 
 
 def collect_cpu() -> CPUInfo:

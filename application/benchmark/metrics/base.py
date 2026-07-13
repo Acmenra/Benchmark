@@ -5,11 +5,15 @@ from core.entities.metrics import MetricStatistics
 
 class MetricCollector(ABC):
     """Базовый класс для оркестраторов сборщиков метрик."""
-    
-    def measure(self) -> MetricStatistics:
-        ...
 
     @abstractmethod
-    def collect(self) -> ...:
+    def start(self) -> ...:
         """Собрать набор метрик."""
 
+    @abstractmethod
+    def stop(self) -> ...:
+        """Собрать набор метрик."""
+
+    @abstractmethod
+    def get(self) -> ...:
+        """Собрать набор метрик."""

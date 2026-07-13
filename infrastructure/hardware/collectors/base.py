@@ -3,10 +3,12 @@
 
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from core.entities.config import SystemInfoConfig
+from core.entities.hardware import CPUInfo, GPUInfo
 
-# будет контрактом для cpu, gpu, power, temperature
+# будет контрактом для cpu и gpu
 class BaseCollector(ABC):
     # Если строк кода много - сделать папку GPU и там уже 3 (или больше) файлов, 
     # которые реализуют этот класс (в каждом из этих двух методов создаетмся CPUStaticInfoCollector и он уже прокидывает в return)
@@ -17,7 +19,7 @@ class BaseCollector(ABC):
         # MetricsConfig
 
     @abstractmethod
-    def info(self) -> GPUInfo:
+    def info(self) -> GPUInfo | CPUInfo:
         ...
 
     @abstractmethod
@@ -35,12 +37,9 @@ class BaseCollector(ABC):
     @abstractmethod 
     def get_hardware_info(self) -> ...: 
         """Возвращает статические данные о железе."""
-        # Все собиратели реализованы, кроме GPU,
-        # осталось создать что то по типу GPUCollector(BaseCollector) и там внести прошлую логику в get_hardware_info
 
     @abstractmethod
     def get_metrics(self) -> ...:
         """Возвращает метрики во время одного пробега."""
-        # какие есть возвращаемые типы смотреть в core\entities\metrics.py
 
 

@@ -1,6 +1,7 @@
 """Слой оркестрации бенчмарка."""
 
 from acmenra_cv import YOLOBackend
+import acmenra_cv
 import cv2
 from ultralytics import YOLO
 
@@ -45,6 +46,7 @@ class BenchmarkRunner:
             model = self._build_YOLObackend(family, size, format_)
             models.append(model)
 
+
         collector = MetricsCollector(case)
         
 
@@ -64,13 +66,16 @@ class BenchmarkRunner:
             # нужно еще подумать сколько по времени это делать
             # Однако тут, проблема в том, как считать температуру, gpu-cpu utillization и power
             # (среднее между одной обработкай или в конце)
-
+   
             ret, frame = cap.read()
             if not ret:
                 break
             # sub_frame, tracked_objects = worker.work(frame=frame, is_polygon=True)
 
-            collector.stop() 
+            collector.stop()
+        # для подсчета фпс 
+        # mean_latency_ms = sum(latencies) / len(latencies)
+        # fps = 1000.0 / mean_latency_ms 
 
             
         
@@ -101,3 +106,4 @@ class BenchmarkRunner:
             cap.release()
 
         return idx
+    

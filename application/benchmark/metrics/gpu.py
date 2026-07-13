@@ -3,7 +3,7 @@ from core.entities.metrics import PerformanceMetrics
 
 
 class PerformanceMetricsCollector(MetricCollector): # TODO доделать
-    def collect(self) -> PerformanceMetrics:
+    def start_collect(self) -> PerformanceMetrics:
         raise NotImplementedError()
     # cpu_power: MetricStatistics | None = None
     # gpu_power: MetricStatistics | None = None
