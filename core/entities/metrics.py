@@ -50,36 +50,55 @@ class MetricStatistics: # TODO сделать очередью, которая �
 
 @dataclass(slots=True)
 class PerformanceMetrics:
-    fps: MetricStatistics | None = None
+    fps: MetricStatistics | None = None # среднее?
     latency: MetricStatistics | None = None
 
 
-@dataclass(slots=True)
-class HardwareMetrics:
-    cpu_utilization: MetricStatistics | None = None
-    gpu_utilization: MetricStatistics | None = None
-    ram_usage: MetricStatistics | None = None
-    vram_usage: MetricStatistics | None = None
-    ...
+# @dataclass(slots=True)
+# class HardwareMetrics:
+#     cpu_utilization: MetricStatistics | None = None
+#     gpu_utilization: MetricStatistics | None = None
+#     ram_usage: MetricStatistics | None = None
+#     vram_usage: MetricStatistics | None = None
+#     ...
 
 
-@dataclass(slots=True)
-class PowerMetrics:
-    cpu_power: MetricStatistics | None = None
-    gpu_power: MetricStatistics | None = None
-    system_power: MetricStatistics | None = None
+
+# @dataclass(slots=True)
+# class PowerMetrics:
+#     cpu_power: MetricStatistics | None = None
+#     gpu_power: MetricStatistics | None = None
+#     system_power: MetricStatistics | None = None
 
 
-@dataclass(slots=True)
-class TemperatureMetrics:
-    cpu_temperature: MetricStatistics | None = None
-    gpu_temperature: MetricStatistics | None = None
+# @dataclass(slots=True)
+# class TemperatureMetrics:
+#     cpu_temperature: MetricStatistics | None = None
+#     gpu_temperature: MetricStatistics | None = None
 
+
+class CPUMetrics:
+    cpu_power: MetricStatistics
+    cpu_utilization: MetricStatistics
+    cpu_temperature: MetricStatistics
+
+class GPUMetrics:
+    vram_usage: MetricStatistics
+    gpu_power: MetricStatistics
+    gpu_utilization: MetricStatistics
+    gpu_temperature: MetricStatistics
+
+# @dataclass(slots=True) БЫЛО
+# class BenchmarkResult:
+#     case: BenchmarkRun
+#     performance: PerformanceMetrics | None = None
+#     hardware: HardwareMetrics | None = None
+#     power: PowerMetrics | None = None
+#     temperature: TemperatureMetrics | None = None
 
 @dataclass(slots=True)
 class BenchmarkResult:
     case: BenchmarkRun
-    performance: PerformanceMetrics | None = None
-    hardware: HardwareMetrics | None = None
-    power: PowerMetrics | None = None
-    temperature: TemperatureMetrics | None = None
+    gpu: CPUMetrics | None = None
+    cpu: GPUMetrics | None = None
+    # ram_usage Сделаем, когда случится первый прогон
