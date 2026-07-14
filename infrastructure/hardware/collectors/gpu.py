@@ -1,5 +1,9 @@
 # infrastructure/hardware/collectors/gpu.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from typing import Any
 
 from core.entities.hardware import GPUInfo

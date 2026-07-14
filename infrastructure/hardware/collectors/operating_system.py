@@ -1,5 +1,9 @@
 # infrastructure/hardware/collectors/operating_system.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import platform
 
 from core.entities.hardware import OSInfo

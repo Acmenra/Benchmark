@@ -1,4 +1,7 @@
 # main.py
+import logging
+
+logger = logging.getLogger(__name__)
 
 from application.benchmark.runner import BenchmarkRunner
 from application.cli import parse_config_path

@@ -1,5 +1,9 @@
 # application/benchmark/metrics/gpu.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from application.benchmark.metrics.base import MetricCollector
 from core.entities.metrics import PerformanceMetrics
 

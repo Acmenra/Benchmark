@@ -1,5 +1,9 @@
 # infrastructure/hardware/collector.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from core.entities.config import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu import collect_cpu
 from core.entities.hardware import SystemInfo

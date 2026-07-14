@@ -1,5 +1,9 @@
 # tests/test_cli.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import sys
 import pytest
 from pathlib import Path

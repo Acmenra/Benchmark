@@ -1,3 +1,9 @@
+# tests/test_operating_system.py
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 from infrastructure.hardware.collectors.operating_system import _empty_to_none, collect_os
 from core.entities.hardware import OSInfo
 

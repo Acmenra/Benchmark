@@ -1,4 +1,8 @@
 # infrastructure/hardware/collectors/base.py
+
+import logging
+
+logger = logging.getLogger(__name__)
 # потом перенесу в interfaces
 
 

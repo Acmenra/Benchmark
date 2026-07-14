@@ -1,5 +1,9 @@
 # infrastructure/config/config_reader.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import yaml
 from typing import Any
 from pathlib import Path

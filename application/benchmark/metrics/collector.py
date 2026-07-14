@@ -1,5 +1,9 @@
 # application/benchmark/metrics/collector.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from core.entities.config import BenchmarkRun
 from core.entities.metrics import BenchmarkResult, PerformanceMetrics
 
