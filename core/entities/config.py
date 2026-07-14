@@ -1,5 +1,9 @@
 # core/entities/config.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from typing import Any
 from pathlib import Path
 from dataclasses import dataclass, fields, is_dataclass

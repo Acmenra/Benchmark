@@ -1,3 +1,9 @@
+# tests/test_config.py
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 import tempfile
 import unittest
 from pathlib import Path

@@ -1,5 +1,9 @@
 # core/entities/hardware.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from dataclasses import dataclass
 
 from core.enums.hardware import PlatformType

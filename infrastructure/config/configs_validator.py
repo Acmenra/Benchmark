@@ -1,5 +1,9 @@
 # infrastructure/config/configs_validator.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator

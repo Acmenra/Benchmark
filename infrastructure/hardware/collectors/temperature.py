@@ -1,5 +1,9 @@
 # infrastructure/hardware/collectors/temperature.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os
 import platform
 import subprocess

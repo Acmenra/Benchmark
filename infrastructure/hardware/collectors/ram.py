@@ -1,5 +1,9 @@
 # infrastructure/hardware/collectors/ram.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # контракт - BaseCollector (infrastructure\hardware\collectors\base.py)
 
 # get_hardware_info пока сделать raise not implemented

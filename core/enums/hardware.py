@@ -1,5 +1,9 @@
 # core/enums/hardware.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from enum import Enum
 
 

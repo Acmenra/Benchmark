@@ -1,3 +1,9 @@
+# tests/test_cpu.py
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 from hardware.collectors.cpu import (
     _empty_to_none,
     _is_cpu_name_line,

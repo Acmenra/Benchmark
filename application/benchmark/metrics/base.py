@@ -1,5 +1,9 @@
 # application/benchmark/metrics/base.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from abc import ABC, abstractmethod
 
 from core.entities.metrics import MetricStatistics

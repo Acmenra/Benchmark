@@ -1,4 +1,4 @@
-# misc/main.py
+# misc/example.py
 
 import os
 import cv2

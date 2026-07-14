@@ -1,3 +1,6 @@
+# tests/test_temperature.py
+
+import logging
 import pytest
 
 from infrastructure.hardware.collectors.temperature import (
@@ -7,6 +10,9 @@ from infrastructure.hardware.collectors.temperature import (
     _check_gpu_temperature_available,
 )
 from core.entities.hardware import TemperatureCapabilitiesInfo
+
+
+logger = logging.getLogger(__name__)
 
 
 def test_collect_temperature_returns_temperature_capabilities_info() -> None:

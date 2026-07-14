@@ -1,5 +1,9 @@
 # core/entities/metrics.py
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from dataclasses import dataclass
 
 from core.entities.config import BenchmarkRun

@@ -1,4 +1,7 @@
 # reporter.py
+import logging
+
+logger = logging.getLogger(__name__)
 
 from core.entities.config import OutputConfig
 
