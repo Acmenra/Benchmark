@@ -2,9 +2,9 @@
 
 """Слой оркестрации бенчмарка."""
 
-from acmenra_cv import YOLOBackend
-import acmenra_cv
+
 import cv2
+from acmenra_cv import YOLOBackend
 from ultralytics import YOLO
 
 from application.benchmark.metrics.collector import MetricsCollector

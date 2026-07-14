@@ -1,8 +1,7 @@
-# application\benchmark\metrics\collector.py
-
+# application/benchmark/metrics/collector.py
 
 from core.entities.config import BenchmarkRun
-from core.entities.metrics import BenchmarkResult, HardwareMetrics, PerformanceMetrics, PowerMetrics
+from core.entities.metrics import BenchmarkResult, PerformanceMetrics
 
 
 class MetricsCollector: # TODO собирает ВСЮ информацию за 1 запуск модели (конкретная модель, конкретный формат, конкретные параметры)

@@ -1,8 +1,8 @@
-from pathlib import Path
-from typing import Any
+# infrastructure/config/config_reader.py
 
 import yaml
-
+from typing import Any
+from pathlib import Path
 from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
 from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig
 

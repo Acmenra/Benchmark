@@ -1,10 +1,11 @@
+# infrastructure/hardware/collectors/cpu.py
+
 import os
+import time
+import psutil
 import platform
 import subprocess
-import time
 from pathlib import Path
-
-import psutil
 
 from core.entities.hardware import CPUInfo
 from core.entities.metrics import DataPoint, MetricStatistics

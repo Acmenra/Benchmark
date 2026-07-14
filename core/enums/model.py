@@ -1,4 +1,4 @@
-# core/enums/enums.py
+# core/enums/model.py
 
 import logging
 from enum import Enum

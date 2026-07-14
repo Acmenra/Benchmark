@@ -1,6 +1,8 @@
-from dataclasses import dataclass, fields, is_dataclass
-from pathlib import Path
+# core/entities/config.py
+
 from typing import Any
+from pathlib import Path
+from dataclasses import dataclass, fields, is_dataclass
 
 
 def to_plain_dict(value: Any) -> Any:
