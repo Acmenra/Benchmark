@@ -18,7 +18,6 @@ class BenchmarkRunner:
 
     def __init__(self, benchmark_config: BenchmarkConfig) -> None:
         self.benchmark_config = benchmark_config
-        self.cameras_count = self._count_cameras() # говорили, что есть возможность, но это не ключевое
 
     def run_suite(self) -> list[BenchmarkResult]:
         results = []
@@ -32,12 +31,6 @@ class BenchmarkRunner:
         return results
         
     def _run_case(self, case: BenchmarkRun) -> BenchmarkResult:
-        if len(case.models) > self.cameras_count:
-            raise RuntimeError(
-                (f'Моделей для пробега больше, чем камер.'), 
-                (f'Моделей: {len(case.models)}, камер: {self.cameras_count}')
-            )
-        
         models = []
         for model_config in case.models:
             family = model_config.family
@@ -100,16 +93,3 @@ class BenchmarkRunner:
     
     def _warmup(self) -> None:
         ...
-
-    def _count_cameras(self) -> int: #
-        idx = 0
-
-        while True:
-            cap = cv2.VideoCapture(idx)
-            if not cap.isOpened():
-                break
-            idx += 1
-            cap.release()
-
-        return idx
-    
