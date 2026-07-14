@@ -24,32 +24,56 @@ class MetricStatistics: # TODO сделать очередью, которая �
         self.unit: str | None = unit
 
     @property
-    def minimum(self):
-        ...
+    def minimum(self) -> float | None:
+        if len(self.history) == 0:
+            return None
+        return min([i.value for i in self.history])
 
     @property
-    def maximum(self):
-        ...
+    def maximum(self) -> float | None:
+        if len(self.history) == 0:
+            return None
+        return max([i.value for i in self.history])
 
     @property
-    def mean(self):
-        ...
+    def mean(self) -> float | None:
+        if len(self.history) == 0:
+            return None
+        values = [i.value for i in self.history]
+        return sum(values) / len(values)
     
     @property
-    def median(self):
-        ...
+    def median(self) -> float | None:
+        if len(self.history) == 0:
+            return None
+
+        values = [i.value for i in self.history]
+        values.sort()
+
+        n = len(values)
+        if n % 2 == 0:
+            return (values[n // 2] + values[n // 2 - 1]) / 2
+        else:
+            return values[n // 2]
 
     @property
-    def p95(self):
-        ...
+    def p95(self) -> float | None:
+        return self._percentile(0.95)
 
     @property
-    def p99(self):
-        ...
+    def p99(self) -> float | None:
+        return self._percentile(0.99)
 
-    @property
-    def p50(self):
-        ...
+    def _percentile(self, coeff: float) -> float | None:
+        if len(self.history) == 0:
+            return None
+        
+        values = [i.value for i in self.history]
+        values.sort()
+
+        idx = int(coeff * (len(values) - 1))
+
+        return values[min(idx, len(values)-1)]
 
 
 @dataclass(slots=True)
