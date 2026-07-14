@@ -2,6 +2,8 @@
 
 import logging
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 """Слой оркестрации бенчмарка."""
@@ -26,8 +28,6 @@ class BenchmarkRunner:
     def run_suite(self) -> list[BenchmarkResult]:
         results = []
 
-        self._warmup()
-
         cases = BenchmarkConfig.runs
         for case in cases:
             results.append(self._run_case(case))
@@ -45,6 +45,7 @@ class BenchmarkRunner:
             model = self._build_YOLObackend(family, size, format_)
             models.append(model)
 
+            self._warmup(model) # прогрев модели
 
         collector = MetricsCollector(case)
         
@@ -95,5 +96,12 @@ class BenchmarkRunner:
 
         return backend
     
-    def _warmup(self) -> None:
-        ...
+    def _warmup(self, backend: YOLOBackend) -> None:
+        # Перед замером нужно прогреть модель, чтобы исключить накладные расходы
+        # первого инференса (выделение памяти и тд)
+
+        fake_frame = np.zeros((640, 640, 3), dtype=np.uint8)
+        for _ in range(10): # итераций прогрева
+            backend.predict(fake_frame) 
+            # можно еще не создавать кадры, а брать первые из cap = cv2.VideoCapture(0)
+        
