@@ -2,6 +2,8 @@
 
 import logging
 from enum import Enum
+from uuid import UUID
+
 from acmenra_cv import (
     DeviceType as _DeviceType, 
     TaskType as _TaskType
@@ -84,11 +86,16 @@ class MetricType(Enum):
     MAP_50 = 'map_50'
     MAP_50_95 = 'map_50_95'
 
+
+class BaseMetric:
+    """Базовая заглушка для будущих enum/entity метрик."""
+
+
 class Metric(BaseMetric):
-    def __init__(self, uuid: uuid, counter: int, metric_type: MetricType):
-        uuid = uuid # Общий, полностью уникальный id
-        counter = counter # номер "прогона"
-        value = 0 # значение
+    def __init__(self, metric_uuid: UUID, counter: int, metric_type: MetricType):
+        self.uuid = metric_uuid # Общий, полностью уникальный id
+        self.counter = counter # номер "прогона"
+        self.value = 0 # значение
         self._metric_type = metric_type # тип значения
 
 

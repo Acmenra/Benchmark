@@ -1,35 +1,69 @@
 # application/benchmark/metrics/collector.py
 
 import logging
+import time
+
+from application.benchmark.metrics.cpu import CPUMetricsCollector
+from application.benchmark.metrics.gpu import GPUMetricsCollector
+from core.entities.config import BenchmarkRun
+from core.entities.metrics import BenchmarkResult, DataPoint, MetricStatistics, PerformanceMetrics
 
 logger = logging.getLogger(__name__)
 
-from core.entities.config import BenchmarkRun
-from core.entities.metrics import BenchmarkResult, PerformanceMetrics
 
+class MetricsCollector:
+    """Собирает метрики за один benchmark-прогон."""
 
-class MetricsCollector: # TODO собирает ВСЮ информацию за 1 запуск модели (конкретная модель, конкретный формат, конкретные параметры)
-    def __init__(self, benchmark_run: BenchmarkRun) -> None:
-        # Возможно потом нужно будет собирать только определенные метрики 
-        # при помощи MetricsConfig
+    def __init__(
+        self,
+        benchmark_run: BenchmarkRun,
+        interval_seconds: float = 1.0,
+        cpu_collector: CPUMetricsCollector | None = None,
+        gpu_collector: GPUMetricsCollector | None = None,
+    ) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds должен быть больше 0")
+
         self.benchmark_run = benchmark_run
-        
-        self.performance = PerformanceMetrics()
-        self.hardware = HardwareMetrics()
-        self.power = PowerMetrics()
+        self.cpu_collector = cpu_collector or CPUMetricsCollector(interval_seconds=interval_seconds)
+        self.gpu_collector = gpu_collector or GPUMetricsCollector(interval_seconds=interval_seconds)
+        self.performance = PerformanceMetrics(latency=MetricStatistics(unit="millisecond"))
+        self._started_at: float | None = None
 
     def start(self) -> None:
-        self.time = ... # текущее точное время
+        """Начать сбор метрик одного benchmark-прогона."""
+        if self._started_at is not None:
+            return
+
+        self._started_at = time.perf_counter()
+        self.cpu_collector.start()
+        self.gpu_collector.start()
 
     def stop(self) -> None:
-        delta = ... # self.time - current time время для latency
+        """Остановить сбор метрик одного benchmark-прогона."""
+        if self._started_at is None:
+            return
 
-    def get(self) -> BenchmarkResult: # TODO отдает метрики "какие" (перечислить, прям по классово), лежит в application/benchmark/metrics
-        ...
+        finished_at = time.perf_counter()
 
+        # Сначала останавливаем фоновые collectors, чтобы потоки не жили после прогона.
+        self.cpu_collector.stop()
+        self.gpu_collector.stop()
+
+        latency_ms = (finished_at - self._started_at) * 1000
+        self.performance.latency.history.append(
+            DataPoint(
+                time_in_ms=int(time.time() * 1000),
+                value=latency_ms,
+            )
+        )
+        self._started_at = None
+
+    def get(self) -> BenchmarkResult: # TODO Добавить расчет среднее медиан и тп
+        """Вернуть итоговый результат одного benchmark-прогона."""
         return BenchmarkResult(
-            self.benchmark_run,
-            None,
-            None,
-            None
+            case=self.benchmark_run,
+            performance=self.performance,
+            cpu=self.cpu_collector.get(),
+            gpu=self.gpu_collector.get(),
         )

@@ -2,11 +2,11 @@
 
 import logging
 
-logger = logging.getLogger(__name__)
-
 from dataclasses import dataclass
 
 from core.entities.config import BenchmarkRun
+
+logger = logging.getLogger(__name__)
 
 # TODO не плохо было бы знать для каждой из метрик её минимальное, медианное, среднее и максимальное значение
 # TODO тогда можно будет "собрать" любую таблицу
@@ -105,16 +105,19 @@ class PerformanceMetrics:
 #     gpu_temperature: MetricStatistics | None = None
 
 
+@dataclass(slots=True)
 class CPUMetrics:
-    cpu_power: MetricStatistics
-    cpu_utilization: MetricStatistics
-    cpu_temperature: MetricStatistics
+    cpu_power: MetricStatistics | None = None
+    cpu_utilization: MetricStatistics | None = None
+    cpu_temperature: MetricStatistics | None = None
 
+
+@dataclass(slots=True)
 class GPUMetrics:
-    vram_usage: MetricStatistics
-    gpu_power: MetricStatistics
-    gpu_utilization: MetricStatistics
-    gpu_temperature: MetricStatistics
+    vram_usage: MetricStatistics | None = None
+    gpu_power: MetricStatistics | None = None
+    gpu_utilization: MetricStatistics | None = None
+    gpu_temperature: MetricStatistics | None = None
 
 # @dataclass(slots=True) БЫЛО
 # class BenchmarkResult:
@@ -127,6 +130,7 @@ class GPUMetrics:
 @dataclass(slots=True)
 class BenchmarkResult:
     case: BenchmarkRun
-    gpu: CPUMetrics | None = None
-    cpu: GPUMetrics | None = None
+    performance: PerformanceMetrics | None = None
+    cpu: CPUMetrics | None = None
+    gpu: GPUMetrics | None = None
     # ram_usage Сделаем, когда случится первый прогон

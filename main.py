@@ -1,18 +1,19 @@
 # main.py
 import logging
 
-logger = logging.getLogger(__name__)
-
 from application.benchmark.runner import BenchmarkRunner
 from application.cli import parse_config_path
+from infrastructure.config.default_config import build_default_config
 from infrastructure.config.config_reader import read_yaml
 from infrastructure.hardware.collector import HardwareCollector
 from reporter import Reporter
 
+logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     config_path = parse_config_path()
-    config = read_yaml(config_path)
+    config = build_default_config() if config_path is None else read_yaml(config_path)
     
     reporter = Reporter(config.output)
 
