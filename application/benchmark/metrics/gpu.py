@@ -14,11 +14,7 @@ logger = logging.getLogger(__name__)
 class GPUMetricsCollector(MetricCollector):
     """Фоновый сборщик runtime-метрик GPU для одного benchmark-прогона."""
 
-    def __init__(
-        self,
-        interval_seconds: float = 1.0,
-        gpu_collector: GPUCollector | None = None,
-    ) -> None:
+    def __init__(self, interval_seconds: float = 1.0, gpu_collector: GPUCollector | None = None,) -> None:
         super().__init__()
         if interval_seconds <= 0:
             raise ValueError("interval_seconds должен быть больше 0")
@@ -40,30 +36,42 @@ class GPUMetricsCollector(MetricCollector):
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-
         with self._lock:
-            self._vram_usage = MetricStatistics(unit="megabyte")
-            self._gpu_power = MetricStatistics(unit="watt")
-            self._gpu_utilization = MetricStatistics(unit="percent")
-            self._gpu_temperature = MetricStatistics(unit="celsius")
+            if self._thread is not None and self._thread.is_alive():
+                return
 
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._collect_loop,
-            name="GPUMetricsCollector",
-            daemon=True,
-        )
-        self._thread.start()
+            self._reset_metrics()
+            self._stop_event.clear()
+            thread = threading.Thread(
+                target=self._collect_loop,
+                name="GPUMetricsCollector",
+                daemon=True,
+            )
+            self._thread = thread
+
+        thread.start()
+        logger.debug("GPUMetricsCollector запущен, интервал %.3fs", self.interval_seconds)
 
     def stop(self) -> None:
         self._stop_event.set()
-        if self._thread is None:
+
+        thread = self._thread
+        if thread is None:
             return
 
-        self._thread.join()
+        thread.join()
         self._thread = None
+        logger.debug("GPUMetricsCollector остановлен")
+
+    def _reset_metrics(self) -> None:
+        """Сбросить накопленную историю метрик перед новым прогоном.
+
+        Вызывается под self._lock.
+        """
+        self._vram_usage = MetricStatistics(unit="megabyte")
+        self._gpu_power = MetricStatistics(unit="watt")
+        self._gpu_utilization = MetricStatistics(unit="percent")
+        self._gpu_temperature = MetricStatistics(unit="celsius")
 
     def get(self) -> GPUMetrics:
         with self._lock:
@@ -76,7 +84,12 @@ class GPUMetricsCollector(MetricCollector):
 
     def _collect_loop(self) -> None:
         while not self._stop_event.is_set():
-            self._collect_once()
+            # Чтобы из-за одного сбоя не рушился весь сбор метрик, ловим исключения и логируем их.
+            try:
+                self._collect_once()
+            except Exception:
+                logger.exception("Ошибка при сборе метрик GPU, снимок пропущен")
+
             self._stop_event.wait(self.interval_seconds)
 
     def _collect_once(self) -> None:
