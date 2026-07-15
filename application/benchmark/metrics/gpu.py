@@ -95,8 +95,6 @@ class GPUMetricsCollector(MetricCollector):
     def _collect_once(self) -> None:
         gpu_metrics = self.gpu_collector.get_metrics()
 
-        # Низкоуровневый GPUCollector возвращает один снимок доступных метрик,
-        # а здесь мы накапливаем историю за весь benchmark-прогон.
         with self._lock:
             _extend_metric(self._vram_usage, gpu_metrics.vram_usage)
             _extend_metric(self._gpu_power, gpu_metrics.gpu_power)
