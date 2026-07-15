@@ -39,10 +39,12 @@ class GPUInfo:
         cuda_version (str | None): Версия CUDA, если доступна.
     """
 
-    name: str | None
-    memory_mb: int | None
-    driver_version: str | None
-    cuda_version: str | None
+    name: str | None = None
+    memory_mb: int | None = None
+    driver_version: str | None = None
+
+    has_cuda: bool = False
+    cuda_version: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
