@@ -1,6 +1,7 @@
 # application/benchmark/runner.py
 
 import logging
+import os
 
 import numpy as np
 
@@ -35,20 +36,18 @@ class BenchmarkRunner:
         return results
         
     def _run_case(self, case: BenchmarkRun) -> BenchmarkResult:
+        dataset_path = "/path/to/your/images"  # временно здесь, по хорошему надо с конфига брать
         models = []
         for model_config in case.models:
             family = model_config.family
             size = model_config.size
-            format_ = ... 
-            task_type = ...
+            format_ = ...
 
             model = self._build_YOLObackend(family, size, format_)
             models.append(model)
 
             self._warmup(model) # прогрев модели
 
-        collector = MetricsCollector(case)
-        
 
         for model in models:
             ... 
@@ -56,43 +55,56 @@ class BenchmarkRunner:
             # что модель всегда одна и не использовать это,
             # а реализовать то, что ниже 
 
-        # чекнуть misc\example.py
-        cap = cv2.VideoCapture(0)
+        # Проверяем, что папка существует
+        if not os.path.isdir(dataset_path):
+            raise ValueError(f"Dataset path not found: {dataset_path}")
 
-        while True: 
-            collector.start() # по идее должно быть что то по типу такого,
-            # collector начинает замер, камера читает кадр, отмечает обьекты
-            # collector заканчивает замер,
-            # нужно еще подумать сколько по времени это делать
-            # Однако тут, проблема в том, как считать температуру, gpu-cpu utillization и power
-            # (среднее между одной обработкай или в конце)
-   
-            ret, frame = cap.read()
-            if not ret:
-                break
-            # sub_frame, tracked_objects = worker.work(frame=frame, is_polygon=True)
+        # Собираем все картинки
+        import glob
+        extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
+        image_paths = []
+        for ext in extensions:
+            image_paths.extend(glob.glob(os.path.join(dataset_path, f'*{ext}')))
+            image_paths.extend(glob.glob(os.path.join(dataset_path, f'*{ext.upper()}')))
+        if not image_paths:
+            raise ValueError(f"No images found in {dataset_path}")
+        image_paths.sort()  # для воспроизводимости тестов подаем данные всегда в одном порядке
 
-            collector.stop()
-        # для подсчета фпс 
-        # mean_latency_ms = sum(latencies) / len(latencies)
-        # fps = 1000.0 / mean_latency_ms 
+        # Инициализируем коллектор
+        collector = MetricsCollector(case)
 
-            
-        
+        # Цикл по каждому изображению
+        for img_path in image_paths:
+            frame = cv2.imread(img_path)
+            if frame is None:
+                logger.warning(f"Could not read {img_path}, skipping")
+                continue
+
+            collector.start()  # начать замер для этого кадра
+
+            # Здесь сам инференс:
+            # result = model.predict(frame)
+            # или sub_frame, tracked_objects = worker.work(frame=frame, is_polygon=True)
+
+            collector.stop()  # закончить замер
+
+        # После обработки всех изображений собираем статистику
         return collector.get()
-    
-    def _build_YOLObackend(self, family, size, format_) -> YOLOBackend:
-        path = family + size + '.' + format_ # TODO  дак вы что принимаете и что выдаете? Вам же по сути в YOLOBackend
-        # TODO надо прост нужные параметры загнать, зачем переизобретать то велосипед
-        model = YOLO(path) # TaskType
-        device = DeviceType.AUTO
-        task_type = TaskType.E
-        category=Coco
 
-        backend = YOLOBackend(model=model,
-                              device=device,
-                              category=category,
-                              task_type=task_type)
+
+    def _build_YOLObackend(self, family, size, format_) -> YOLOBackend:
+        model_path = f"{family}{size}.{format_}"
+
+        backend = YOLOBackend( # наверное device_type, task_type и т.п. стоит определять при ините BenchmarkRunner
+            model=YOLO(model_path, task=TaskType.SEGMENT.value),
+            device=DeviceType.AUTO,
+            category=Coco,
+            task_type=TaskType.SEGMENT,
+            threshold=0.60,
+            iou=0.7,
+            imgsz=1280,
+            half=False
+        )
 
         return backend
     
