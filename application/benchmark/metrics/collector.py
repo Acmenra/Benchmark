@@ -27,7 +27,10 @@ class MetricsCollector:
         self.benchmark_run = benchmark_run
         self.cpu_collector = cpu_collector or CPUMetricsCollector(interval_seconds=interval_seconds)
         self.gpu_collector = gpu_collector or GPUMetricsCollector(interval_seconds=interval_seconds)
-        self.performance = PerformanceMetrics(latency=MetricStatistics(unit="millisecond"))
+        self.performance = PerformanceMetrics(
+            fps=MetricStatistics(unit="fps"),
+            latency=MetricStatistics(unit="millisecond"),
+        )
         self._started_at: float | None = None
 
     def start(self) -> None:
@@ -51,13 +54,22 @@ class MetricsCollector:
         self._started_at = None
 
     def record_latency(self, latency_ms: float) -> None:
-        """Добавить замер latency для одного inference."""
+        """Добавить замеры latency и FPS для одного inference."""
+        time_in_ms = int(time.time() * 1000)
         self.performance.latency.history.append(
             DataPoint(
-                time_in_ms=int(time.time() * 1000),
+                time_in_ms=time_in_ms,
                 value=latency_ms,
             )
         )
+
+        if latency_ms > 0:
+            self.performance.fps.history.append(
+                DataPoint(
+                    time_in_ms=time_in_ms,
+                    value=1000 / latency_ms,
+                )
+            )
 
     def get(self) -> BenchmarkResult: # TODO Добавить расчет среднее медиан и тп
         """Вернуть итоговый результат одного benchmark-прогона."""
