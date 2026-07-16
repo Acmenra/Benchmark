@@ -3,6 +3,7 @@
 import logging
 
 from dataclasses import dataclass
+from typing import Any, Dict
 
 from core.entities.config import BenchmarkRun
 
@@ -129,8 +130,24 @@ class GPUMetrics:
 
 @dataclass(slots=True)
 class BenchmarkResult:
+    """
+    Результат бенчмарка для ОДНОГО кейса (может содержать несколько моделей).
+    Используется для агрегированных данных по кейсу.
+    """
     case: BenchmarkRun
     performance: PerformanceMetrics | None = None
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None
-    # ram_usage Сделаем, когда случится первый прогон
+
+
+@dataclass(slots=True)
+class ModelBenchmarkResult:
+    """
+    Результат бенчмарка для ОДНОЙ модели в рамках кейса.
+    Используется для детализированных отчётов по моделям.
+    """
+    case: BenchmarkRun
+    model: Dict[str, Any]  # {family, size, format}
+    performance: PerformanceMetrics | None = None
+    cpu: CPUMetrics | None = None
+    gpu: GPUMetrics | None = None

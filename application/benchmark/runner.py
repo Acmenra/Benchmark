@@ -11,10 +11,11 @@ import cv2
 import numpy as np
 from acmenra_cv import YOLOBackend
 from ultralytics import YOLO
+from typing import Any, Dict, List
 
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import BenchmarkResult
+from core.entities.metrics import BenchmarkResult, ModelBenchmarkResult
 from core.enums.model import Coco, DeviceType, TaskType
 
 logger = logging.getLogger(__name__)
@@ -26,20 +27,22 @@ class BenchmarkRunner:
     def __init__(self, benchmark_config: BenchmarkConfig) -> None:
         self.benchmark_config = benchmark_config
 
-    def run_suite(self) -> list[BenchmarkResult]:
-        results = []
-
-        cases = self.benchmark_config.runs
-        for case in cases:
-            results.append(self._run_case(case))
-
-        return results
+    def run_suite(self) -> List[ModelBenchmarkResult]:
+        """
+        Запускает все бенчмарк-кейсы и возвращает список словарей,
+        каждый из которых содержит модель и её метрики.
+        """
+        all_results = []
+        for case in self.benchmark_config.runs:
+            case_results = self._run_case(case)
+            all_results.extend(case_results)
+        return all_results
         
-    def _run_case(self, case: BenchmarkRun) -> BenchmarkResult:
+    def _run_case(self, case: BenchmarkRun) -> List[ModelBenchmarkResult]:
         dataset_path = self._get_dataset_path()
         image_paths = self._collect_image_paths(dataset_path)
-        collector = MetricsCollector(case)
 
+        results = []
         for model_config in case.models:
             family = model_config.family
             size = model_config.size
@@ -49,11 +52,28 @@ class BenchmarkRunner:
                     logger.info("Format %s is skipped in first .pt benchmark run", format_)
                     continue
 
+                collector = MetricsCollector(case)
+
                 model = self._build_YOLObackend(family, size, format_)
                 self._warmup(model)
                 self._run_model_on_images(model, image_paths, collector)
 
-        return collector.get()
+                raw_result = collector.get()
+
+                model_result = ModelBenchmarkResult(
+                    case=case,
+                    model={
+                        "family": family,
+                        "size": size,
+                        "format": format_,
+                    },
+                    performance=raw_result.performance,
+                    cpu=raw_result.cpu,
+                    gpu=raw_result.gpu,
+                )
+                results.append(model_result)
+
+        return results
 
     def _get_dataset_path(self) -> Path:
         if self.benchmark_config.test_images is None:
