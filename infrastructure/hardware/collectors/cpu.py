@@ -29,6 +29,9 @@ class CPUCollector(BaseCollector):
         # Статическую информацию получаем один раз.
         self._hardware_info = collect_cpu()
 
+
+    # Методы info/tmp/frq/prsnt нужны для совместимости с BaseCollector.
+    # Основной код benchmark использует get_hardware_info() и get_metrics().
     def info(self) -> CPUInfo:
         """Вернуть статическую информацию о процессоре."""
         return self.get_hardware_info()
