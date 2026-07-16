@@ -44,20 +44,20 @@ class MetricsCollector:
         if self._started_at is None:
             return
 
-        finished_at = time.perf_counter()
-
         # Сначала останавливаем фоновые collectors, чтобы потоки не жили после прогона.
         self.cpu_collector.stop()
         self.gpu_collector.stop()
 
-        latency_ms = (finished_at - self._started_at) * 1000
+        self._started_at = None
+
+    def record_latency(self, latency_ms: float) -> None:
+        """Добавить замер latency для одного inference."""
         self.performance.latency.history.append(
             DataPoint(
                 time_in_ms=int(time.time() * 1000),
                 value=latency_ms,
             )
         )
-        self._started_at = None
 
     def get(self) -> BenchmarkResult: # TODO Добавить расчет среднее медиан и тп
         """Вернуть итоговый результат одного benchmark-прогона."""

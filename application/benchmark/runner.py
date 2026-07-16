@@ -5,17 +5,18 @@
 import glob
 import logging
 import os
+import time
 from pathlib import Path
+from typing import List
 
 import cv2
 import numpy as np
 from acmenra_cv import YOLOBackend
 from ultralytics import YOLO
-from typing import Any, Dict, List
 
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import BenchmarkResult, ModelBenchmarkResult
+from core.entities.metrics import ModelBenchmarkResult
 from core.enums.model import Coco, DeviceType, TaskType
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,11 @@ class BenchmarkRunner:
 
                 model = self._build_YOLObackend(family, size, format_)
                 self._warmup(model)
-                self._run_model_on_images(model, image_paths, collector)
+                collector.start()
+                try:
+                    self._run_model_on_images(model, image_paths, collector)
+                finally:
+                    collector.stop()
 
                 raw_result = collector.get()
 
@@ -115,12 +120,10 @@ class BenchmarkRunner:
                 logger.warning("Could not read %s, skipping", img_path)
                 continue
 
-            collector.start()
-            try:
-                model.predict(frame)
-            finally:
-                collector.stop()
-
+            started_at = time.perf_counter()
+            model.predict(frame)
+            latency_ms = (time.perf_counter() - started_at) * 1000
+            collector.record_latency(latency_ms)
 
     def _build_YOLObackend(self, family, size, format_) -> YOLOBackend:
         model_path = self._build_model_path(family, size, format_)
