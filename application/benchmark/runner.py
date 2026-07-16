@@ -1,7 +1,5 @@
 # application/benchmark/runner.py
 
-"""Слой оркестрации бенчмарка."""
-
 import glob
 import logging
 import os
@@ -11,12 +9,11 @@ import cv2
 import numpy as np
 from acmenra_cv import YOLOBackend
 from ultralytics import YOLO
-from typing import Any, Dict, List
 
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import BenchmarkResult, ModelBenchmarkResult
-from core.enums.model import Coco, DeviceType, TaskType
+from core.entities.metrics import ModelBenchmarkResult
+from core.enums.model import Coco, DeviceType, TaskType, export_extension, ultralytics_export_format
 
 logger = logging.getLogger(__name__)
 
@@ -27,51 +24,53 @@ class BenchmarkRunner:
     def __init__(self, benchmark_config: BenchmarkConfig) -> None:
         self.benchmark_config = benchmark_config
 
-    def run_suite(self) -> List[ModelBenchmarkResult]:
-        """
-        Запускает все бенчмарк-кейсы и возвращает список словарей,
-        каждый из которых содержит модель и её метрики.
-        """
-        all_results = []
+    def run_suite(self) -> list[ModelBenchmarkResult]:
+        """Запустить все benchmark-кейсы и вернуть результаты по моделям."""
+        all_results: list[ModelBenchmarkResult] = []
         for case in self.benchmark_config.runs:
             case_results = self._run_case(case)
             all_results.extend(case_results)
         return all_results
-        
-    def _run_case(self, case: BenchmarkRun) -> List[ModelBenchmarkResult]:
+
+    def _run_case(self, case: BenchmarkRun) -> list[ModelBenchmarkResult]:
         dataset_path = self._get_dataset_path()
         image_paths = self._collect_image_paths(dataset_path)
 
-        results = []
+        results: list[ModelBenchmarkResult] = []
         for model_config in case.models:
             family = model_config.family
             size = model_config.size
 
             for format_ in self._get_supported_formats():
-                if format_ != "pytorch":
-                    logger.info("Format %s is skipped in first .pt benchmark run", format_)
+                model_path = self.resolve_model_path(family, size, format_)
+                if model_path is None:
+                    logger.warning("Формат %s для %s%s недоступен — пропуск", format_, family, size)
                     continue
 
                 collector = MetricsCollector(case)
+                model = self._build_yolo_backend(model_path)
 
-                model = self._build_YOLObackend(family, size, format_)
-                self._warmup(model)
-                self._run_model_on_images(model, image_paths, collector)
+                try:
+                    self._warmup(model)
+                    collector.start_run()
+                    self._run_model_on_images(model, image_paths, collector)
+                finally:
+                    collector.stop_run()
 
                 raw_result = collector.get()
-
-                model_result = ModelBenchmarkResult(
-                    case=case,
-                    model={
-                        "family": family,
-                        "size": size,
-                        "format": format_,
-                    },
-                    performance=raw_result.performance,
-                    cpu=raw_result.cpu,
-                    gpu=raw_result.gpu,
+                results.append(
+                    ModelBenchmarkResult(
+                        case=case,
+                        model={
+                            "family": family,
+                            "size": size,
+                            "format": format_,
+                        },
+                        performance=raw_result.performance,
+                        cpu=raw_result.cpu,
+                        gpu=raw_result.gpu,
+                    )
                 )
-                results.append(model_result)
 
         return results
 
@@ -115,41 +114,72 @@ class BenchmarkRunner:
                 logger.warning("Could not read %s, skipping", img_path)
                 continue
 
-            collector.start()
+            collector.mark_start()
             try:
                 model.predict(frame)
             finally:
-                collector.stop()
+                collector.mark_stop()
 
+    def resolve_model_path(self, family: str, size: str, format_: str) -> Path | None:
+        """Возвращает путь к модели нужного формата.
 
-    def _build_YOLObackend(self, family, size, format_) -> YOLOBackend:
-        model_path = self._build_model_path(family, size, format_)
+        Для pytorch — прямой путь к .pt. 
+        Для остальных форматов:
+        если артефакт уже существует на диске — вернуть его; иначе
+        сконвертировать через YOLO.export() и вернуть путь к результату.
+        Возвращает None, если формат неизвестен или экспорт не удался.
+        """
+        if format_ == "pytorch":
+            return Path(f"{family}{size}.pt")
 
-        backend = YOLOBackend( # наверное device_type, task_type и т.п. стоит определять при ините BenchmarkRunner
-            model=YOLO(model_path, task=TaskType.DETECT.value),
+        export_format = ultralytics_export_format(format_)
+        extension = export_extension(format_)
+        if export_format is None or extension is None:
+            logger.warning("Неизвестный формат модели: %s", format_)
+            return None
+
+        cached = self._find_cached_artifact(family, size, extension)
+        if cached is not None:
+            logger.info("Найден закэшированный артефакт %s: %s", format_, cached)
+            return cached
+
+        pt_path = Path(f"{family}{size}.pt")
+        logger.info("Экспорт %s%s -> %s", family, size, format_)
+        try:
+            exported = YOLO(str(pt_path)).export(format=export_format)
+        except Exception:
+            logger.exception("Не удалось экспортировать %s в формат %s", pt_path, format_)
+            return None
+
+        exported_path = Path(exported)
+        if not exported_path.exists():
+            logger.error("Экспорт %s завершился без файла: %s", format_, exported_path)
+            return None
+
+        logger.info("Экспорт завершён: %s", exported_path)
+        return exported_path
+
+    def _find_cached_artifact(self, family: str, size: str, extension: str) -> Path | None:
+        """Найти ранее экспортированный артефакт модели по расширению."""
+        candidate = Path(f"{family}{size}{extension}")
+        return candidate if candidate.exists() else None
+
+    def _build_yolo_backend(self, model_path: Path) -> YOLOBackend:
+        # TODO device_type/task_type стоит определять при инициализации BenchmarkRunner
+        return YOLOBackend(
+            model=YOLO(str(model_path), task=TaskType.DETECT.value),
             device=DeviceType.MPS,
             category=Coco,
             task_type=TaskType.DETECT,
             threshold=self.benchmark_config.confidence_threshold or 0.25,
             iou=0.7,
             imgsz=self.benchmark_config.input_size or 640,
-            half=False
+            half=False,
         )
 
-        return backend
-
-    def _build_model_path(self, family: str, size: str, format_: str) -> str:
-        if format_ == "pytorch":
-            return f"{family}{size}.pt"
-        raise ValueError(f"Unsupported model format for first benchmark run: {format_}")
-    
     def _warmup(self, backend: YOLOBackend) -> None:
-        # Перед замером нужно прогреть модель, чтобы исключить накладные расходы
-        # первого инференса (выделение памяти и тд)
-
         input_size = self.benchmark_config.input_size or 640
         warmup_iterations = self.benchmark_config.warmup_iterations or 10
         fake_frame = np.zeros((input_size, input_size, 3), dtype=np.uint8)
         for _ in range(warmup_iterations):
-            backend.predict(fake_frame) 
-        
+            backend.predict(fake_frame)

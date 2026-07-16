@@ -78,9 +78,60 @@ class MetricStatistics: # TODO сделать очередью, которая �
 
 
 @dataclass(slots=True)
+class LatencyStats:
+    mean_ms: float | None
+    p50_ms: float | None
+    p95_ms: float | None
+    p99_ms: float | None
+    min_ms: float | None
+    max_ms: float | None
+
+    @classmethod
+    def from_history(cls, history: list[DataPoint]) -> "LatencyStats | None":
+        """Собирает статистику из истории замеров latency.
+
+        Args:
+            history: Список точек latency (value в миллисекундах).
+
+        Returns:
+            LatencyStats или None, если история пуста.
+        """
+        if not history:
+            return None
+
+        values = sorted(point.value for point in history)
+
+        return cls(
+            mean_ms=sum(values) / len(values),
+            p50_ms=_percentile(values, 0.50),
+            p95_ms=_percentile(values, 0.95),
+            p99_ms=_percentile(values, 0.99),
+            min_ms=values[0],
+            max_ms=values[-1],
+        )
+
+
+@dataclass(slots=True)
 class PerformanceMetrics:
-    fps: MetricStatistics | None = None # среднее?
-    latency: MetricStatistics | None = None
+    """Производительность прогона.
+
+    Attributes:
+        fps: Средний FPS как скаляр (1000 / mean_latency_ms) или None.
+        latency: Предвычисленные статистики latency или None.
+    """
+
+    fps: float | None = None
+    latency: LatencyStats | None = None
+
+
+def _percentile(sorted_values: list[float], coeff: float) -> float:
+    """Возвращает процентиль по отсортированному списку (nearest-rank).
+
+    Формула совпадает с MetricStatistics._percentile, но работает
+    по уже отсортированным значениям без повторной сортировки.
+    """
+    idx = int(coeff * (len(sorted_values) - 1))
+    return sorted_values[min(idx, len(sorted_values) - 1)]
 
 
 # @dataclass(slots=True)
