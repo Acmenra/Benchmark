@@ -1,10 +1,11 @@
 # infrastructure/hardware/collectors/gpu.py
 
 import logging
-from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 from core.entities.config import SystemInfoConfig
 
@@ -14,40 +15,67 @@ import pynvml
 import platform
 
 from core.entities.hardware import GPUInfo
-from infrastructure.hardware.collectors.base import BaseCollector
+from infrastructure.hardware.collectors.base import BaseCollector, is_valid_temperature
 
 
 class GPUCollector(BaseCollector):
-    def __init__(self, system_info_config: SystemInfoConfig):
+    def __init__(self, system_info_config: SystemInfoConfig | None = None):
         self.system_info_config = system_info_config
+
+    def get_hardware_info(self) -> GPUInfo:
+        """Возвращает статическую информацию о графическом процессоре."""
+        return self.info()
+
+    def get_metrics(self) -> ...:
+        """Возвращает runtime-метрики GPU."""
+        raise NotImplementedError()
 
     def info(self) -> GPUInfo:
         if self._pynvml_available():
-            return self._info_pynvml()
-
-        if self._nvidia_smi_available():
-            return self._info_nvidia_smi()
+            gpu_info = self._info_pynvml()
+        elif self._nvidia_smi_available():
+            gpu_info = self._info_nvidia_smi()
+        else:
+            gpu_info = GPUInfo(
+                name=None,
+                memory_mb=None,
+                driver_version=None,
+                has_cuda=False,
+                cuda_version=None,
+            )
 
         return GPUInfo(
-            name=None,
-            memory_mb=None,
-            driver_version=None,
-            has_cuda=False,
-            cuda_version=None,
+            name=gpu_info.name,
+            memory_mb=gpu_info.memory_mb,
+            driver_version=gpu_info.driver_version,
+            has_cuda=gpu_info.has_cuda,
+            cuda_version=gpu_info.cuda_version,
+            temperature_sensor_available=self.is_temperature_sensor_available(),
         )
+
+    def is_temperature_sensor_available(self) -> bool:
+        """Определяет доступность температурных датчиков GPU."""
+        temp = self.tmp()
+        return temp is not None and is_valid_temperature(temp)
 
     def tmp(self) -> float | None:
         if self._jetson():
             return self._temperature_tegrastats()
-        
+
         if self._pynvml_available():
             return self._temperature_pynvml()
 
         if self._nvidia_smi_available():
             return self._query_nvidia_smi("temperature.gpu")
-        
+
+        if self._raspberry_pi():
+            return self._temperature_vcgencmd()
+
         if platform.system() == "Linux":
-            return self._temperature_hwmon()
+            temperature = self._temperature_hwmon()
+            if temperature is not None:
+                return temperature
+            return self._temperature_jetson_thermal_zone()
 
         return None
 
@@ -124,12 +152,18 @@ class GPUCollector(BaseCollector):
             return False
 
     def _jetson(self) -> bool:
+        device_tree_model = Path("/proc/device-tree/model")
         return (
             Path("/etc/nv_tegra_release").exists()
-            or Path("/proc/device-tree/model").read_text(
-                errors="ignore"
-            ).lower().find("nvidia jetson") >= 0
+            or (
+                device_tree_model.exists()
+                and "nvidia jetson"
+                in device_tree_model.read_text(errors="ignore").lower()
+            )
         )
+
+    def _raspberry_pi(self) -> bool:
+        return platform.system() == "Linux" and os.path.exists("/boot/config.txt")
 
 #             <---------- информация о GPU ---------->
 
@@ -305,6 +339,50 @@ class GPUCollector(BaseCollector):
                 process.terminate()
 
         return None
+
+    def _temperature_vcgencmd(self) -> float | None:
+        """Получение температуры GPU/SoC на Raspberry Pi через vcgencmd."""
+        try:
+            result = subprocess.check_output(
+                "vcgencmd measure_temp",
+                shell=True,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+            output = result.decode().strip()
+            if "temp=" in output:
+                temp_raw = output.split("=")[1].replace("'C", "")
+                temp = float(temp_raw)
+                if is_valid_temperature(temp):
+                    return temp
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            ValueError,
+        ):
+            pass
+
+        return None
+
+    def _temperature_jetson_thermal_zone(self) -> float | None:
+        """Получение температуры GPU на Jetson через thermal zones."""
+        tegra_zones = [
+            "/sys/devices/virtual/thermal/thermal_zone0/temp",
+            "/sys/devices/virtual/thermal/thermal_zone1/temp",
+        ]
+        for zone_path in tegra_zones:
+            try:
+                if os.path.exists(zone_path):
+                    with open(zone_path, "r") as f:
+                        temp_raw = f.read().strip()
+                        temp_celsius = float(temp_raw) / 1000.0
+                        if is_valid_temperature(temp_celsius):
+                            return temp_celsius
+            except (IOError, ValueError, OSError):
+                continue
+
+        return None
     
 #             <---------- ЧАСТОТА ---------->
 
@@ -444,4 +522,16 @@ class GPUCollector(BaseCollector):
                 continue
 
         return None
+
+
+def collect_gpu(system_info_config: SystemInfoConfig | None = None) -> GPUInfo:
+    """Сбор базовой информации о графическом процессоре."""
+    collector = GPUCollector(system_info_config)
+    return collector.info()
+
+
+def is_temperature_sensor_available(system_info_config: SystemInfoConfig | None = None) -> bool:
+    """Определяет доступность температурных датчиков GPU."""
+    collector = GPUCollector(system_info_config)
+    return collector.is_temperature_sensor_available()
 

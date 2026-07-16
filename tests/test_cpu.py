@@ -4,12 +4,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from hardware.collectors.cpu import (
+from infrastructure.hardware.collectors.cpu import (
     _empty_to_none,
     _is_cpu_name_line,
     collect_cpu,
 )
-from hardware.entities import CPUInfo
+from core.entities.hardware import CPUInfo
 
 
 def test_collect_cpu_returns_cpu_info() -> None:
@@ -21,6 +21,7 @@ def test_collect_cpu_returns_cpu_info() -> None:
     assert cpu_info.logical_cores is None or cpu_info.logical_cores > 0
     assert cpu_info.physical_cores is None or cpu_info.physical_cores > 0
     assert cpu_info.max_frequency_mhz is None or cpu_info.max_frequency_mhz > 0
+    assert isinstance(cpu_info.temperature_sensor_available, bool)
 
 
 def test_empty_to_none_converts_empty_string() -> None:

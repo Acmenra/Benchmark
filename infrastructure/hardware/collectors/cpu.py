@@ -9,7 +9,7 @@ from pathlib import Path
 
 from core.entities.hardware import CPUInfo
 from core.entities.metrics import DataPoint, MetricStatistics
-from infrastructure.hardware.collectors.base import BaseCollector
+from infrastructure.hardware.collectors.base import BaseCollector, is_valid_temperature
 
 
 class CPUCollector(BaseCollector): # TODO это единая точка правды о СPU
@@ -33,6 +33,14 @@ class CPUCollector(BaseCollector): # TODO это единая точка пра�
 
         return cpu_utilization
 
+    def is_temperature_sensor_available(self) -> bool:
+        """Определяет доступность температурных датчиков CPU."""
+        return get_cpu_temperature() is not None
+
+    def tmp(self) -> float | None:
+        """Возвращает текущую температуру CPU в °C."""
+        return get_cpu_temperature()
+
 
 def collect_cpu() -> CPUInfo:
     """Сбор базовой информации о процессоре."""
@@ -42,7 +50,96 @@ def collect_cpu() -> CPUInfo:
         physical_cores=psutil.cpu_count(logical=False),
         logical_cores=psutil.cpu_count(logical=True) or os.cpu_count(),
         max_frequency_mhz=_collect_max_frequency_mhz(),
+        temperature_sensor_available=is_temperature_sensor_available(),
     )
+
+
+def is_temperature_sensor_available() -> bool:
+    """Определяет доступность температурных датчиков CPU."""
+    return get_cpu_temperature() is not None
+
+
+def get_cpu_temperature() -> float | None:
+    """Получение температуры CPU через доступные системные источники."""
+    try:
+        temp = _get_cpu_temperature_system()
+        if temp is not None:
+            return temp
+    except Exception:
+        pass
+
+    try:
+        return _get_cpu_temperature_thermal_zone()
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_cpu_temperature_system() -> float | None:
+    """Получение температуры CPU через системные API."""
+    try:
+        if hasattr(psutil, "sensors_temperatures"):
+            temps = psutil.sensors_temperatures()
+            if temps:
+                for readings in temps.values():
+                    if readings and isinstance(readings, list):
+                        for reading in readings:
+                            temp = reading.current
+                            if is_valid_temperature(temp):
+                                return temp
+    except (AttributeError, OSError):
+        pass
+
+    if platform.system() == "Windows":
+        return _get_cpu_temperature_windows_wmi()
+
+    return None
+
+
+def _get_cpu_temperature_windows_wmi() -> float | None:
+    """Получение температуры CPU через WMI на Windows."""
+    try:
+        import wmi
+
+        w = wmi.WMI(namespace="root\\cimv2")
+        for item in w.query(
+            "SELECT * FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"
+        ):
+            if hasattr(item, "Temperature") and item.Temperature:
+                temp_celsius = float(item.Temperature) / 10.0
+                if is_valid_temperature(temp_celsius):
+                    return temp_celsius
+            if hasattr(item, "HighPrecisionTemperature") and item.HighPrecisionTemperature:
+                temp_celsius = float(item.HighPrecisionTemperature) / 100.0
+                if is_valid_temperature(temp_celsius):
+                    return temp_celsius
+    except (ImportError, AttributeError, OSError):
+        pass
+
+    return None
+
+
+def _get_cpu_temperature_thermal_zone() -> float | None:
+    """Получение температуры CPU из системных тепловых зон Linux."""
+    thermal_zones = [
+        "/sys/class/thermal/thermal_zone0/temp",
+        "/sys/devices/virtual/thermal/thermal_zone0/temp",
+        "/proc/acpi/thermal_cooling/THM0/temperature",
+    ]
+
+    for zone_path in thermal_zones:
+        try:
+            if os.path.exists(zone_path):
+                with open(zone_path, "r") as f:
+                    temp_raw = f.read().strip()
+                    temp_celsius = float(temp_raw) / 1000.0
+                    if is_valid_temperature(temp_celsius):
+                        return temp_celsius
+        except (IOError, ValueError, OSError):
+            continue
+
+    return None
 
 
 def _collect_cpu_name() -> str | None:

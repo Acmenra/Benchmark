@@ -3,183 +3,255 @@
 import logging
 import pytest
 
-from infrastructure.hardware.collectors.temperature import (
-    collect_temperature,
-    _is_valid_temperature,
-    _check_cpu_temperature_available,
-    _check_gpu_temperature_available,
+from infrastructure.hardware.collectors.base import is_valid_temperature
+from infrastructure.hardware.collectors.cpu import (
+    collect_cpu,
+    is_temperature_sensor_available as is_cpu_temperature_sensor_available,
+    get_cpu_temperature,
 )
-from core.entities.hardware import TemperatureCapabilitiesInfo
+from infrastructure.hardware.collectors.gpu import (
+    collect_gpu,
+    is_temperature_sensor_available as is_gpu_temperature_sensor_available,
+    GPUCollector,
+)
+from infrastructure.hardware.collectors.npu import NPUCollector
+from infrastructure.hardware.collectors.mps import MPSCollector
+from core.entities.hardware import CPUInfo, GPUInfo
 
 
 logger = logging.getLogger(__name__)
 
 
-def test_collect_temperature_returns_temperature_capabilities_info() -> None:
-    """collect_temperature должен возвращать TemperatureCapabilitiesInfo."""
-    temp_info = collect_temperature()
-    
-    assert isinstance(temp_info, TemperatureCapabilitiesInfo)
-    assert isinstance(temp_info.cpu_sensor_available, bool)
-    assert isinstance(temp_info.gpu_sensor_available, bool)
+def test_collect_cpu_includes_temperature_sensor_availability() -> None:
+    """collect_cpu должен включать информацию о доступности датчика температуры."""
+    cpu_info = collect_cpu()
+
+    assert isinstance(cpu_info, CPUInfo)
+    assert isinstance(cpu_info.temperature_sensor_available, bool)
 
 
-def test_temperature_capabilities_values_are_boolean() -> None:
-    """Оба поля должны содержать булевы значения."""
-    temp_info = collect_temperature()
-    
-    assert temp_info.cpu_sensor_available in (True, False)
-    assert temp_info.gpu_sensor_available in (True, False)
+def test_collect_gpu_includes_temperature_sensor_availability() -> None:
+    """collect_gpu должен включать информацию о доступности датчика температуры."""
+    gpu_info = collect_gpu()
+
+    assert isinstance(gpu_info, GPUInfo)
+    assert isinstance(gpu_info.temperature_sensor_available, bool)
 
 
-def test_temperature_capabilities_is_frozen() -> None:
-    """TemperatureCapabilitiesInfo должен быть неизменяемым."""
-    temp_info = collect_temperature()
-    
+def test_cpu_temperature_sensor_availability_is_boolean() -> None:
+    """Поле temperature_sensor_available в CPUInfo должно быть булевым."""
+    cpu_info = collect_cpu()
+
+    assert cpu_info.temperature_sensor_available in (True, False)
+
+
+def test_gpu_temperature_sensor_availability_is_boolean() -> None:
+    """Поле temperature_sensor_available в GPUInfo должно быть булевым."""
+    gpu_info = collect_gpu()
+
+    assert gpu_info.temperature_sensor_available in (True, False)
+
+
+def test_cpu_info_is_frozen() -> None:
+    """CPUInfo должен быть неизменяемым."""
+    cpu_info = collect_cpu()
+
     with pytest.raises(AttributeError):
-        temp_info.cpu_sensor_available = False
+        cpu_info.temperature_sensor_available = False
 
 
-def test_temperature_capabilities_has_slots() -> None:
-    """TemperatureCapabilitiesInfo должен иметь __slots__ для экономии памяти."""
-    temp_info = collect_temperature()
-    
-    # Проверка, что __slots__ определены
-    assert hasattr(TemperatureCapabilitiesInfo, '__slots__')
-    assert 'cpu_sensor_available' in TemperatureCapabilitiesInfo.__slots__
-    assert 'gpu_sensor_available' in TemperatureCapabilitiesInfo.__slots__
-    
-    # Проверка, что нельзя добавить новые атрибуты
-    with pytest.raises((AttributeError, TypeError)):
-        temp_info.new_attribute = True
+def test_gpu_info_is_frozen() -> None:
+    """GPUInfo должен быть неизменяемым."""
+    gpu_info = collect_gpu()
+
+    with pytest.raises(AttributeError):
+        gpu_info.temperature_sensor_available = False
+
+
+def test_cpu_info_has_temperature_sensor_slot() -> None:
+    """CPUInfo должен иметь поле temperature_sensor_available."""
+    cpu_info = collect_cpu()
+
+    assert hasattr(CPUInfo, "__slots__")
+    assert "temperature_sensor_available" in CPUInfo.__slots__
+
+
+def test_gpu_info_has_temperature_sensor_slot() -> None:
+    """GPUInfo должен иметь поле temperature_sensor_available."""
+    gpu_info = collect_gpu()
+
+    assert hasattr(GPUInfo, "__slots__")
+    assert "temperature_sensor_available" in GPUInfo.__slots__
 
 
 def test_is_valid_temperature_valid_values() -> None:
     """Проверка обработки валидных значений."""
-    # Минимальная температура
-    assert _is_valid_temperature(0) is True
-    
-    # Комнатная температура
-    assert _is_valid_temperature(20) is True
-    assert _is_valid_temperature(25.5) is True
-    
-    # Допустимая температура
-    assert _is_valid_temperature(50) is True
-    assert _is_valid_temperature(75.3) is True
-    
-    # Максимальная температура
-    assert _is_valid_temperature(100) is True
-    assert _is_valid_temperature(149.9) is True
+    assert is_valid_temperature(0) is True
+    assert is_valid_temperature(20) is True
+    assert is_valid_temperature(25.5) is True
+    assert is_valid_temperature(50) is True
+    assert is_valid_temperature(75.3) is True
+    assert is_valid_temperature(100) is True
+    assert is_valid_temperature(149.9) is True
 
 
 def test_is_valid_temperature_invalid_values() -> None:
     """Проверка отклонения невалидных значений."""
-    # Отрицательные значения
-    assert _is_valid_temperature(-1) is False
-    assert _is_valid_temperature(-50) is False
-    assert _is_valid_temperature(-273.15) is False
-    
-    # Слишком высокие значения
-    assert _is_valid_temperature(150) is False
-    assert _is_valid_temperature(200) is False
-    assert _is_valid_temperature(500) is False
-    assert _is_valid_temperature(5000) is False
+    assert is_valid_temperature(-1) is False
+    assert is_valid_temperature(-50) is False
+    assert is_valid_temperature(-273.15) is False
+    assert is_valid_temperature(150) is False
+    assert is_valid_temperature(200) is False
+    assert is_valid_temperature(500) is False
+    assert is_valid_temperature(5000) is False
 
 
 def test_is_valid_temperature_invalid_types() -> None:
     """Проверка отклонения невалидных типов данных."""
-    # String
-    assert _is_valid_temperature("50") is False
-    assert _is_valid_temperature("temperature") is False
-    
-    # None
-    assert _is_valid_temperature(None) is False
-    
-    # List, dict
-    assert _is_valid_temperature([50]) is False
-    assert _is_valid_temperature({"temp": 50}) is False
+    assert is_valid_temperature("50") is False
+    assert is_valid_temperature("temperature") is False
+    assert is_valid_temperature(None) is False
+    assert is_valid_temperature([50]) is False
+    assert is_valid_temperature({"temp": 50}) is False
 
 
 def test_is_valid_temperature_boundary_values() -> None:
     """Проверка граничных значений диапазона."""
-    # Нижняя граница (включена)
-    assert _is_valid_temperature(0) is True
-    assert _is_valid_temperature(0.0) is True
-    
-    # Верхняя граница (исключена)
-    assert _is_valid_temperature(149.99999) is True
-    assert _is_valid_temperature(150) is False
-    assert _is_valid_temperature(150.00001) is False
+    assert is_valid_temperature(0) is True
+    assert is_valid_temperature(0.0) is True
+    assert is_valid_temperature(149.99999) is True
+    assert is_valid_temperature(150) is False
+    assert is_valid_temperature(150.00001) is False
 
 
 def test_cpu_temperature_check_returns_boolean() -> None:
-    """_check_cpu_temperature_available должна возвращать boolean."""
-    result = _check_cpu_temperature_available()
+    """is_cpu_temperature_sensor_available должна возвращать boolean."""
+    result = is_cpu_temperature_sensor_available()
     assert isinstance(result, bool)
 
 
 def test_gpu_temperature_check_returns_boolean() -> None:
-    """_check_gpu_temperature_available должна возвращать boolean."""
-    result = _check_gpu_temperature_available()
+    """is_gpu_temperature_sensor_available должна возвращать boolean."""
+    result = is_gpu_temperature_sensor_available()
     assert isinstance(result, bool)
 
 
-def test_collect_temperature_consistency() -> None:
-    """Проверка согласованности результатов."""
-    temp1 = collect_temperature()
-    temp2 = collect_temperature()
-    temp3 = collect_temperature()
-    
-    # Результаты должны быть одинаковыми (датчики не появляются/исчезают)
-    assert temp1.cpu_sensor_available == temp2.cpu_sensor_available == temp3.cpu_sensor_available
-    assert temp1.gpu_sensor_available == temp2.gpu_sensor_available == temp3.gpu_sensor_available
+def test_collect_cpu_temperature_consistency() -> None:
+    """Проверка согласованности результатов CPU."""
+    cpu1 = collect_cpu()
+    cpu2 = collect_cpu()
+    cpu3 = collect_cpu()
+
+    assert (
+        cpu1.temperature_sensor_available
+        == cpu2.temperature_sensor_available
+        == cpu3.temperature_sensor_available
+    )
 
 
-def test_collect_temperature_on_known_system() -> None:
-    """Проверка безошибочной работы на известной системе."""
+def test_collect_gpu_temperature_consistency() -> None:
+    """Проверка согласованности результатов GPU."""
+    gpu1 = collect_gpu()
+    gpu2 = collect_gpu()
+    gpu3 = collect_gpu()
+
+    assert (
+        gpu1.temperature_sensor_available
+        == gpu2.temperature_sensor_available
+        == gpu3.temperature_sensor_available
+    )
+
+
+def test_collect_cpu_on_known_system() -> None:
+    """Проверка безошибочной работы CPU на известной системе."""
     try:
-        temp_info = collect_temperature()
-        assert isinstance(temp_info, TemperatureCapabilitiesInfo)
-        assert isinstance(temp_info.cpu_sensor_available, bool)
-        assert isinstance(temp_info.gpu_sensor_available, bool)
+        cpu_info = collect_cpu()
+        assert isinstance(cpu_info, CPUInfo)
+        assert isinstance(cpu_info.temperature_sensor_available, bool)
     except Exception as e:
-        pytest.fail(f"collect_temperature() raised {type(e).__name__}: {e}")
+        pytest.fail(f"collect_cpu() raised {type(e).__name__}: {e}")
 
 
-def test_temperature_capabilities_info_dataclass_fields() -> None:
-    """Проверка правильности полей в TemperatureCapabilitiesInfo."""
+def test_collect_gpu_on_known_system() -> None:
+    """Проверка безошибочной работы GPU на известной системе."""
+    try:
+        gpu_info = collect_gpu()
+        assert isinstance(gpu_info, GPUInfo)
+        assert isinstance(gpu_info.temperature_sensor_available, bool)
+    except Exception as e:
+        pytest.fail(f"collect_gpu() raised {type(e).__name__}: {e}")
+
+
+def test_cpu_info_dataclass_fields() -> None:
+    """Проверка наличия поля temperature_sensor_available в CPUInfo."""
     from dataclasses import fields
-    
-    field_names = {f.name for f in fields(TemperatureCapabilitiesInfo)}
-    assert field_names == {'cpu_sensor_available', 'gpu_sensor_available'}
+
+    field_names = {f.name for f in fields(CPUInfo)}
+    assert "temperature_sensor_available" in field_names
 
 
-def test_temperature_capabilities_info_is_dataclass() -> None:
-    """Проверка, что TemperatureCapabilitiesInfo является dataclass."""
-    from dataclasses import is_dataclass
-    
-    assert is_dataclass(TemperatureCapabilitiesInfo)
+def test_gpu_info_dataclass_fields() -> None:
+    """Проверка наличия поля temperature_sensor_available в GPUInfo."""
+    from dataclasses import fields
+
+    field_names = {f.name for f in fields(GPUInfo)}
+    assert "temperature_sensor_available" in field_names
 
 
-def test_temperature_capabilities_info_creation() -> None:
-    """Проверка создания объекта TemperatureCapabilitiesInfo."""
-    temp_info = TemperatureCapabilitiesInfo(
-        cpu_sensor_available=True,
-        gpu_sensor_available=False
+def test_cpu_info_creation_with_temperature_sensor() -> None:
+    """Проверка создания CPUInfo с полем temperature_sensor_available."""
+    cpu_info = CPUInfo(
+        name="Test CPU",
+        architecture="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        max_frequency_mhz=3000.0,
+        temperature_sensor_available=True,
     )
-    
-    assert temp_info.cpu_sensor_available is True
-    assert temp_info.gpu_sensor_available is False
+
+    assert cpu_info.temperature_sensor_available is True
 
 
-def test_temperature_capabilities_info_repr() -> None:
-    """Проверка строкового представления TemperatureCapabilitiesInfo."""
-    temp_info = TemperatureCapabilitiesInfo(
-        cpu_sensor_available=True,
-        gpu_sensor_available=False
+def test_gpu_info_creation_with_temperature_sensor() -> None:
+    """Проверка создания GPUInfo с полем temperature_sensor_available."""
+    gpu_info = GPUInfo(
+        name="Test GPU",
+        memory_mb=8192,
+        driver_version="535.0",
+        has_cuda=True,
+        cuda_version="12.0",
+        temperature_sensor_available=False,
     )
-    
-    repr_str = repr(temp_info)
-    assert "TemperatureCapabilitiesInfo" in repr_str
-    assert "cpu_sensor_available=True" in repr_str
-    assert "gpu_sensor_available=False" in repr_str
+
+    assert gpu_info.temperature_sensor_available is False
+
+
+def test_cpu_temperature_sensor_matches_reading() -> None:
+    """Доступность датчика CPU должна соответствовать возможности прочитать температуру."""
+    sensor_available = is_cpu_temperature_sensor_available()
+    temperature = get_cpu_temperature()
+
+    assert sensor_available == (temperature is not None)
+
+
+def test_gpu_temperature_sensor_matches_reading() -> None:
+    """Доступность датчика GPU должна соответствовать возможности прочитать температуру."""
+    collector = GPUCollector()
+    sensor_available = collector.is_temperature_sensor_available()
+    temperature = collector.tmp()
+
+    assert sensor_available == (temperature is not None and is_valid_temperature(temperature))
+
+
+def test_npu_collector_temperature_check_returns_boolean() -> None:
+    """NPUCollector.is_temperature_sensor_available должна возвращать boolean."""
+    collector = NPUCollector()
+    result = collector.is_temperature_sensor_available()
+    assert isinstance(result, bool)
+
+
+def test_mps_collector_temperature_check_returns_boolean() -> None:
+    """MPSCollector.is_temperature_sensor_available должна возвращать boolean."""
+    collector = MPSCollector()
+    result = collector.is_temperature_sensor_available()
+    assert isinstance(result, bool)

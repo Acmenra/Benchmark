@@ -47,3 +47,7 @@ class BaseCollector(ABC):
         """Возвращает метрики во время одного пробега."""
 
 
+def is_valid_temperature(temp: float) -> bool:
+    """Проверка, что значение температуры находится в допустимом диапазоне."""
+    return isinstance(temp, (int, float)) and 0 <= temp < 150
+

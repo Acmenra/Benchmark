@@ -19,6 +19,7 @@ class CPUInfo:
         physical_cores (int | None): Количество физических ядер процессора.
         logical_cores (int | None): Количество логических ядер.
         max_frequency (flaot | None): Максимальная частота процессора в МГц.
+        temperature_sensor_available (bool): True, если доступен датчик температуры CPU.
     """
 
     name: str | None
@@ -26,6 +27,7 @@ class CPUInfo:
     physical_cores: int | None
     logical_cores: int | None
     max_frequency_mhz: float | None
+    temperature_sensor_available: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -37,6 +39,7 @@ class GPUInfo:
         memory_mb (int | None): Объем видеопамяти в мегабайтах.
         driver_version (str | None): Версия установленного драйвера GPU.
         cuda_version (str | None): Версия CUDA, если доступна.
+        temperature_sensor_available (bool): True, если доступен датчик температуры GPU.
     """
 
     name: str | None = None
@@ -45,18 +48,7 @@ class GPUInfo:
 
     has_cuda: bool = False
     cuda_version: str | None = None
-
-
-@dataclass(slots=True, frozen=True)
-class TemperatureCapabilitiesInfo:
-    """Информация о доступности датчиков температуры на системе.
-    
-    Attributes:
-        cpu_sensor_available (bool): True, если система может снимать показания температуры процессора. 
-        gpu_sensor_available (bool): True, если система может снимать показания температуры видеокарты.
-    """
-    cpu_sensor_available: bool
-    gpu_sensor_available: bool
+    temperature_sensor_available: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -89,7 +81,6 @@ class SystemInfo:
         cpu (CPUInfo | None): Информация о центральном процессоре.
         gpu (GPUInfo | None): Информация о графическом процессоре.
         os (OSInfo | None): Информация об операционной системе.
-        temperature (TemperatureCapabilitiesInfo | None): Информация о доступности датчиков температуры.
     """
         
     platform: PlatformType | None
@@ -98,6 +89,5 @@ class SystemInfo:
     cpu: CPUInfo | None
     gpu: GPUInfo | None 
     os: OSInfo | None
-    temperature: TemperatureCapabilitiesInfo | None
     
     ...
