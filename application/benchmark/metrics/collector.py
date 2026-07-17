@@ -6,13 +6,18 @@ import time
 from application.benchmark.metrics.cpu import CPUMetricsCollector
 from application.benchmark.metrics.gpu import GPUMetricsCollector
 from core.entities.config import BenchmarkRun
-from core.entities.metrics import BenchmarkResult, DataPoint, MetricStatistics, PerformanceMetrics
+from core.entities.metrics import (
+    BenchmarkResult,
+    DataPoint,
+    LatencyStats,
+    MetricStatistics,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class MetricsCollector:
-    """Собирает метрики за один benchmark-прогон."""
+    """Собирает метрики за один benchmark-прогон модели."""
 
     def __init__(
         self,
@@ -27,55 +32,46 @@ class MetricsCollector:
         self.benchmark_run = benchmark_run
         self.cpu_collector = cpu_collector or CPUMetricsCollector(interval_seconds=interval_seconds)
         self.gpu_collector = gpu_collector or GPUMetricsCollector(interval_seconds=interval_seconds)
-        self.performance = PerformanceMetrics(
-            fps=MetricStatistics(unit="fps"),
-            latency=MetricStatistics(unit="millisecond"),
-        )
-        self._started_at: float | None = None
+        self._latency = MetricStatistics(unit="millisecond")
+        self._mark_started_at: float | None = None
 
-    def start(self) -> None:
-        """Начать сбор метрик одного benchmark-прогона."""
-        if self._started_at is not None:
-            return
-
-        self._started_at = time.perf_counter()
+    def start_run(self) -> None:
+        """Запускает фоновый сбор CPU/GPU-метрик на весь прогон модели."""
+        self._latency = MetricStatistics(unit="millisecond")
+        self._mark_started_at = None
         self.cpu_collector.start()
         self.gpu_collector.start()
 
-    def stop(self) -> None:
-        """Остановить сбор метрик одного benchmark-прогона."""
-        if self._started_at is None:
-            return
-
-        # Сначала останавливаем фоновые collectors, чтобы потоки не жили после прогона.
+    def stop_run(self) -> None:
+        """Останавливает фоновый сбор CPU/GPU-метрик."""
         self.cpu_collector.stop()
         self.gpu_collector.stop()
+        self._mark_started_at = None
 
-        self._started_at = None
+    def mark_start(self) -> None:
+        """Фиксирует старт одного инференса для замера latency."""
+        self._mark_started_at = time.perf_counter()
 
-    def record_latency(self, latency_ms: float) -> None:
-        """Добавить замеры latency и FPS для одного inference."""
-        time_in_ms = int(time.time() * 1000)
-        self.performance.latency.history.append(
+    def mark_stop(self) -> None:
+        """Фиксирует окончание инференса и добавляет замер latency."""
+        if self._mark_started_at is None:
+            logger.warning("mark_stop вызван без парного mark_start, замер пропущен")
+            return
+
+        latency_ms = (time.perf_counter() - self._mark_started_at) * 1000
+        self._latency.history.append(
             DataPoint(
-                time_in_ms=time_in_ms,
+                time_in_ms=int(time.time() * 1000),
                 value=latency_ms,
             )
         )
+        self._mark_started_at = None
 
-        if latency_ms > 0:
-            self.performance.fps.history.append(
-                DataPoint(
-                    time_in_ms=time_in_ms,
-                    value=1000 / latency_ms,
-                )
-            )
-
-    def get(self) -> BenchmarkResult: # TODO Добавить расчет среднее медиан и тп
-        """Вернуть итоговый результат одного benchmark-прогона."""
+    def get(self) -> BenchmarkResult:
+        """Возвращает итоговый результат прогона."""
         return BenchmarkResult(
             case=self.benchmark_run,
-            performance=self.performance,
+            performance=LatencyStats.from_history(self._latency.history),
             cpu=self.cpu_collector.get(),
             gpu=self.gpu_collector.get(),
         )

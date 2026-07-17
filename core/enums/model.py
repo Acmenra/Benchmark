@@ -48,6 +48,35 @@ class ModelFormat(Enum):
     COREML = 'coreml'  # для Apple Silicon (будущее)
 
 
+_ULTRALYTICS_EXPORT_FORMAT: dict[str, str | None] = {
+    ModelFormat.PYTORCH.value: None,
+    ModelFormat.ONNX.value: 'onnx',
+    ModelFormat.TENSORRT.value: 'engine',
+    ModelFormat.OPENVINO.value: 'openvino',
+    ModelFormat.RKNN.value: 'rknn',
+    ModelFormat.COREML.value: 'coreml',
+}
+
+_EXPORT_EXTENSION: dict[str, str] = {
+    ModelFormat.ONNX.value: '.onnx',
+    ModelFormat.TENSORRT.value: '.engine',
+    ModelFormat.OPENVINO.value: '.openvino',  # экспорт создаёт директорию
+    ModelFormat.RKNN.value: '.rknn',
+    ModelFormat.COREML.value: '.mlpackage',
+}
+
+
+def ultralytics_export_format(fmt: str) -> str | None:
+    """Возвращает аргумент format для YOLO.export() по строке формата.
+    """
+    return _ULTRALYTICS_EXPORT_FORMAT.get(fmt)
+
+
+def export_extension(fmt: str) -> str | None:
+    """Вернуть расширение файла (или директории) артефакта экспорта."""
+    return _EXPORT_EXTENSION.get(fmt)
+
+
 class ModelSize(Enum):
     NANO = 'n'      # ~3M params, fastest
     SMALL = 's'     # ~11M params, balanced

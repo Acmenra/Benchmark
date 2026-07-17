@@ -37,27 +37,31 @@ class CPUMetricsCollector(MetricCollector):
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-
+        thread = None
         with self._lock:
-            self._cpu_utilization = MetricStatistics(unit="percent")
+            if self._thread is not None and self._thread.is_alive():
+                return
 
-        self.cpu_collector.prepare_metrics_collection()
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._collect_loop,
-            name="CPUMetricsCollector",
-            daemon=True,
-        )
-        self._thread.start()
+            self._cpu_utilization = MetricStatistics(unit="percent")
+            self._stop_event.clear()
+            thread = threading.Thread(
+                target=self._collect_loop,
+                name="CPUMetricsCollector",
+                daemon=True,
+            )
+            self._thread = thread
+
+        if thread is not None:
+            thread.start()
 
     def stop(self) -> None:
         self._stop_event.set()
-        if self._thread is None:
+
+        thread = self._thread
+        if thread is None:
             return
 
-        self._thread.join()
+        thread.join()
         self._thread = None
     
     def get(self) -> CPUMetrics:
@@ -68,8 +72,16 @@ class CPUMetricsCollector(MetricCollector):
         return CPUMetrics(cpu_utilization=cpu_utilization)
 
     def _collect_loop(self) -> None:
+        self.cpu_collector.prepare_metrics_collection()
+
         while not self._stop_event.is_set():
-            self._collect_once()
+            # Чтобы из-за одного сбоя не рушился весь сбор метрик, ловим
+            # исключения и логируем их (аналогично GPUMetricsCollector).
+            try:
+                self._collect_once()
+            except Exception:
+                logger.exception("Ошибка при сборе метрик CPU, снимок пропущен")
+
             self._stop_event.wait(self.interval_seconds)
 
     def _collect_once(self) -> None:

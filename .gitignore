@@ -45,6 +45,12 @@ htmlcov/
 *.pb
 *.tflite
 *.engine
+*.rknn
+*.mlpackage
+*.xml
+*.bin
+# ultralytics export artifacts (openvino creates a directory)
+*_openvino*/
 runs/
 datasets/
 data/
