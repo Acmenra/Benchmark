@@ -38,6 +38,7 @@ class MetricsCollector:
     def start_run(self) -> None:
         """Запускает фоновый сбор CPU/GPU-метрик на весь прогон модели."""
         self._latency = MetricStatistics(unit="millisecond")
+        self._mark_started_at = None
         self.cpu_collector.start()
         self.gpu_collector.start()
 
@@ -45,13 +46,14 @@ class MetricsCollector:
         """Останавливает фоновый сбор CPU/GPU-метрик."""
         self.cpu_collector.stop()
         self.gpu_collector.stop()
+        self._mark_started_at = None
 
     def mark_start(self) -> None:
         """Фиксирует старт одного инференса для замера latency."""
         self._mark_started_at = time.perf_counter()
 
     def mark_stop(self) -> None:
-        """Фиксирует окончание инференса и добавить замер latency."""
+        """Фиксирует окончание инференса и добавляет замер latency."""
         if self._mark_started_at is None:
             logger.warning("mark_stop вызван без парного mark_start, замер пропущен")
             return

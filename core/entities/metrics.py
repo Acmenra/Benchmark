@@ -122,8 +122,6 @@ def _percentile(sorted_values: list[float], coeff: float) -> float:
     """
     idx = int(coeff * (len(sorted_values) - 1))
     return sorted_values[min(idx, len(sorted_values) - 1)]
-
-
 # @dataclass(slots=True)
 # class HardwareMetrics:
 #     cpu_utilization: MetricStatistics | None = None
