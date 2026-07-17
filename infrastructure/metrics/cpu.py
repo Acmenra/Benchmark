@@ -1,4 +1,4 @@
-# application/benchmark/metrics/cpu.py
+# infrastructure/metrics/cpu.py
 
 import logging
 import threading
@@ -63,7 +63,7 @@ class CPUMetricsCollector(MetricCollector):
 
         thread.join()
         self._thread = None
-    
+
     def get(self) -> CPUMetrics:
         cpu_utilization = MetricStatistics(unit=self._cpu_utilization.unit)
         with self._lock:

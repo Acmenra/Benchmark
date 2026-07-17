@@ -3,8 +3,6 @@
 import logging
 import time
 
-from application.benchmark.metrics.cpu import CPUMetricsCollector
-from application.benchmark.metrics.gpu import GPUMetricsCollector
 from core.entities.config import BenchmarkRun
 from core.entities.metrics import (
     BenchmarkResult,
@@ -12,6 +10,8 @@ from core.entities.metrics import (
     LatencyStats,
     MetricStatistics,
 )
+from infrastructure.metrics.cpu import CPUMetricsCollector
+from infrastructure.metrics.gpu import GPUMetricsCollector
 
 logger = logging.getLogger(__name__)
 

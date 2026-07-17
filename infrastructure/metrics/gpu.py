@@ -1,4 +1,4 @@
-# application/benchmark/metrics/gpu.py
+# infrastructure/metrics/gpu.py
 
 import logging
 import threading
@@ -14,7 +14,11 @@ logger = logging.getLogger(__name__)
 class GPUMetricsCollector(MetricCollector):
     """Фоновый сборщик runtime-метрик GPU для одного benchmark-прогона."""
 
-    def __init__(self, interval_seconds: float = 1.0, gpu_collector: GPUCollector | None = None,) -> None:
+    def __init__(
+        self,
+        interval_seconds: float = 1.0,
+        gpu_collector: GPUCollector | None = None,
+    ) -> None:
         super().__init__()
         if interval_seconds <= 0:
             raise ValueError("interval_seconds должен быть больше 0")
