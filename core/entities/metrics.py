@@ -185,7 +185,6 @@ class ModelBenchmarkResult:
     Результат бенчмарка для ОДНОЙ модели в рамках кейса.
     Используется для детализированных отчётов по моделям.
     """
-    case: BenchmarkRun
     model: Dict[str, Any]  # {family, size, format}
     performance: LatencyStats | None = None
     cpu: CPUMetrics | None = None

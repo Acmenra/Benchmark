@@ -60,7 +60,6 @@ class BenchmarkRunner:
                 raw_result = collector.get()
                 results.append(
                     ModelBenchmarkResult(
-                        case=case,
                         model={
                             "family": family,
                             "size": size,
