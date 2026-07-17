@@ -79,6 +79,7 @@ class MetricStatistics: # TODO сделать очередью, которая �
 
 @dataclass(slots=True)
 class LatencyStats:
+    fps: float | None
     mean_ms: float | None
     p50_ms: float | None
     p95_ms: float | None
@@ -94,15 +95,17 @@ class LatencyStats:
             history: Список точек latency (value в миллисекундах).
 
         Returns:
-            LatencyStats или None, если история пуста.
+            ``LatencyStats`` или ``None``, если история пуста.
         """
         if not history:
             return None
 
         values = sorted(point.value for point in history)
+        mean = sum(values) / len(values)
 
         return cls(
-            mean_ms=sum(values) / len(values),
+            fps=1000.0 / mean if mean > 0 else None,
+            mean_ms=mean,
             p50_ms=_percentile(values, 0.50),
             p95_ms=_percentile(values, 0.95),
             p99_ms=_percentile(values, 0.99),
@@ -111,21 +114,8 @@ class LatencyStats:
         )
 
 
-@dataclass(slots=True)
-class PerformanceMetrics:
-    """Производительность прогона.
-
-    Attributes:
-        fps: Средний FPS как скаляр (1000 / mean_latency_ms) или None.
-        latency: Предвычисленные статистики latency или None.
-    """
-
-    fps: float | None = None
-    latency: LatencyStats | None = None
-
-
 def _percentile(sorted_values: list[float], coeff: float) -> float:
-    """Возвращает процентиль по отсортированному списку (nearest-rank).
+    """Возвращает процентиль по отсортированному списку.
 
     Формула совпадает с MetricStatistics._percentile, но работает
     по уже отсортированным значениям без повторной сортировки.
@@ -174,7 +164,7 @@ class GPUMetrics:
 # @dataclass(slots=True) БЫЛО
 # class BenchmarkResult:
 #     case: BenchmarkRun
-#     performance: PerformanceMetrics | None = None
+#     performance: LatencyStats | None = None
 #     hardware: HardwareMetrics | None = None
 #     power: PowerMetrics | None = None
 #     temperature: TemperatureMetrics | None = None
@@ -186,7 +176,7 @@ class BenchmarkResult:
     Используется для агрегированных данных по кейсу.
     """
     case: BenchmarkRun
-    performance: PerformanceMetrics | None = None
+    performance: LatencyStats | None = None
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None
 
@@ -199,6 +189,6 @@ class ModelBenchmarkResult:
     """
     case: BenchmarkRun
     model: Dict[str, Any]  # {family, size, format}
-    performance: PerformanceMetrics | None = None
+    performance: LatencyStats | None = None
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None

@@ -11,7 +11,6 @@ from core.entities.metrics import (
     DataPoint,
     LatencyStats,
     MetricStatistics,
-    PerformanceMetrics,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,19 +67,9 @@ class MetricsCollector:
 
     def get(self) -> BenchmarkResult:
         """Возвращает итоговый результат прогона."""
-        latency_stats = LatencyStats.from_history(self._latency.history)
-        fps = self._compute_fps(latency_stats)
-
         return BenchmarkResult(
             case=self.benchmark_run,
-            performance=PerformanceMetrics(fps=fps, latency=latency_stats),
+            performance=LatencyStats.from_history(self._latency.history),
             cpu=self.cpu_collector.get(),
             gpu=self.gpu_collector.get(),
         )
-
-    @staticmethod
-    def _compute_fps(latency_stats: LatencyStats | None) -> float | None:
-        """Считает средний FPS из средней latency (1000 / mean_latency_ms)."""
-        if latency_stats is None or latency_stats.mean_ms is None or latency_stats.mean_ms <= 0:
-            return None
-        return 1000.0 / latency_stats.mean_ms
