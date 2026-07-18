@@ -7,6 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 from acmenra_cv import YOLOBackend
 from ultralytics import YOLO
 
@@ -164,10 +165,10 @@ class BenchmarkRunner:
         return candidate if candidate.exists() else None
 
     def _build_yolo_backend(self, model_path: Path) -> YOLOBackend:
-        # TODO device_type/task_type стоит определять при инициализации BenchmarkRunner
+        device = self._normalize_device(self.benchmark_config.device_type)
         return YOLOBackend(
             model=YOLO(str(model_path), task=TaskType.DETECT.value),
-            device=DeviceType.MPS,
+            device=device,
             category=Coco,
             task_type=TaskType.DETECT,
             threshold=self.benchmark_config.confidence_threshold or 0.25,
@@ -175,6 +176,27 @@ class BenchmarkRunner:
             imgsz=self.benchmark_config.input_size or 640,
             half=False,
         )
+
+    def _normalize_device(self, device_type: DeviceType | None) -> DeviceType:
+        """Преобразует DeviceType enum в значение, поддерживаемое ultralytics.
+        
+        Значение 'auto' конвертируется в 'cpu' или 'cuda' в зависимости от доступности.
+        """
+        if device_type is None:
+            return DeviceType.CPU
+        
+        device_str = device_type.value
+        
+        # Значения, которые ultralytics не поддерживает напрямую
+        if device_str == 'auto':
+            normalized = 'cuda' if torch.cuda.is_available() else 'cpu'
+            return DeviceType(normalized)
+        
+        if device_str in ('npu', 'gpu', 'tpu', 'tensorrt', 'npu:rk3588', 'npu:intel', 'npu:hailo', 'tpu:coral'):
+            logger.warning(f"Device '{device_str}' не поддерживается ultralytics, используется 'cpu'")
+            return DeviceType.CPU
+        
+        return device_type
 
     def _warmup(self, backend: YOLOBackend) -> None:
         input_size = self.benchmark_config.input_size or 640

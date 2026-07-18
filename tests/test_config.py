@@ -11,6 +11,7 @@ from typing import Any
 
 from infrastructure.config.config_reader import read_yaml
 from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig, to_plain_dict
+from core.enums.model import DeviceType
 from ddt import data, ddt, unpack
 
 from infrastructure.config.configs_validator import ConfigError
@@ -105,6 +106,7 @@ class TestBenchmarkConfig(unittest.TestCase):
         config = BenchmarkConfig(
             runs=(run,),
             formats=("pytorch", "onnx"),
+            device_type=DeviceType.CPU,
             input_size=640,
             batch_size=1,
             warmup_iterations=10,
@@ -349,6 +351,7 @@ class TestReadYaml(unittest.TestCase):
           formats:
             - pytorch
             - onnx
+          device_type: cuda
           input_size: 640
           batch_size: 1
         output:
@@ -370,6 +373,7 @@ class TestReadYaml(unittest.TestCase):
             config = read_yaml(temp_path)
             self.assertIsNotNone(config.benchmark)
             self.assertEqual(config.benchmark.input_size, 640)
+            self.assertEqual(config.benchmark.device_type, DeviceType.CUDA)
             self.assertTrue(config.system_info.collect_gpu)
             self.assertFalse(config.system_info.collect_power)
         finally:
