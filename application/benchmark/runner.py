@@ -224,35 +224,22 @@ class BenchmarkRunner:
             QualityMetrics с рассчитанными метриками или None если сбор не удалось выполнить.
         """
         try:
-            # Наличие датасета с разметкой для валидации
-            validation_paths = [
-                Path("dataset"),
-                Path("dataset/val"),
-                Path("dataset/validation"),
-                Path("dataset/coco"),
-                Path("data/val"),
-            ]
-            
-            dataset_path = None
-            for path in validation_paths:
-                if path.exists() and (path / "images").exists():
-                    dataset_path = path
-                    break
-            
-            if dataset_path is None:
+            dataset_config_path = self._find_quality_dataset_config()
+
+            if dataset_config_path is None:
                 logger.debug(
                     "Датасет с разметкой не найден для %s%s, пропускаю сбор метрик качества",
                     family,
                     size,
                 )
                 return None
-            
+
             logger.info("Собираю метрики качества для %s%s на датасете: %s", 
-                       family, size, dataset_path)
-            
+                       family, size, dataset_config_path)
+
             collector = YOLOQualityMetricsCollector(
                 yolo_backend=model,
-                dataset_path=dataset_path,
+                dataset_path=dataset_config_path,
                 imgsz=self.benchmark_config.input_size or 640,
                 conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
             )
@@ -268,6 +255,35 @@ class BenchmarkRunner:
                 e,
             )
             return None
+
+    def _find_quality_dataset_config(self) -> Path | None:
+        """Найти YAML-конфиг датасета для Ultralytics validation."""
+        validation_paths: list[Path] = []
+
+        if self.benchmark_config.test_images is not None:
+            benchmark_dataset_path = Path(self.benchmark_config.test_images)
+            validation_paths.extend(
+                [
+                    benchmark_dataset_path / "data.yaml",
+                    benchmark_dataset_path.parent / "data.yaml",
+                ]
+            )
+
+        validation_paths.extend(
+            [
+                Path("dataset/data.yaml"),
+                Path("dataset/val/data.yaml"),
+                Path("dataset/validation/data.yaml"),
+                Path("dataset/coco/data.yaml"),
+                Path("data/val/data.yaml"),
+            ]
+        )
+
+        for path in validation_paths:
+            if path.is_file():
+                return path
+
+        return None
 
     def _warmup(self, backend: YOLOBackend) -> None:
         input_size = self.benchmark_config.input_size or 640

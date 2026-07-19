@@ -1,14 +1,14 @@
 benchmark:
   runs:
     - models:
-        - family: yolo26
-          sizes: [n]
+        - family: yolov8
+          sizes: [n, s]
 
   formats:
     - pytorch
     - onnx
-    - tensorrt
-    - openvino
+    # - tensorrt
+    # - openvino
 
   device_type: auto
   input_size: 640
