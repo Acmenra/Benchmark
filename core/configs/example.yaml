@@ -1,11 +1,8 @@
 benchmark:
   runs:
     - models:
-        - family: yolov8
-          sizes: [n, s, m]
-    - models:
-        - family: yolov11
-          sizes: [n, s]
+        - family: yolo26
+          sizes: [n]
 
   formats:
     - pytorch
@@ -13,12 +10,13 @@ benchmark:
     - tensorrt
     - openvino
 
+  device_type: auto
   input_size: 640
   batch_size: 1
   warmup_iterations: 10
   main_iterations: 100
   confidence_threshold: 0.25
-  test_images: "./data/test_images"
+  test_images: "./dataset"
 
 output:
   directory: "./results"

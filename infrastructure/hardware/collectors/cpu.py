@@ -7,27 +7,68 @@ import platform
 import subprocess
 from pathlib import Path
 
+from core.entities.config import SystemInfoConfig
 from core.entities.hardware import CPUInfo
 from core.entities.metrics import DataPoint, MetricStatistics
 from infrastructure.hardware.collectors.base import BaseCollector
 
 
-class CPUCollector(BaseCollector): # TODO это единая точка правды о СPU
+
+class CPUCollector(BaseCollector):
     """Сборщик статической информации и runtime-метрик CPU."""
 
-    # TDOO - оно инитается (как раз получение инфы о железе),
+    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+        super().__init__(
+            system_info_config
+            or SystemInfoConfig(
+                collect_gpu=False,
+                collect_power=False,
+                collect_temperature=False,
+            )
+        )
+        # Статическую информацию получаем один раз.
+        self._hardware_info = collect_cpu()
+
+
+    # Методы info/tmp/frq/prsnt нужны для совместимости с BaseCollector.
+    # Основной код benchmark использует get_hardware_info() и get_metrics().
+    def info(self) -> CPUInfo:
+        """Вернуть статическую информацию о процессоре."""
+        return self.get_hardware_info()
+
+    def tmp(self) -> None:
+        """Температура CPU собирается отдельным temperature collector."""
+        return None
+
+    def frq(self) -> float | None:
+        """Вернуть текущую доступную частоту CPU в МГц."""
+        return _collect_max_frequency_mhz()
+
+    def prsnt(self) -> MetricStatistics:
+        """Вернуть текущий процент загрузки CPU."""
+        return self.get_metrics()
 
     def get_hardware_info(self) -> CPUInfo:
         """Возвращает статическую информацию о процессоре."""
-        return collect_cpu()
+        return self._hardware_info
 
-    def get_metrics(self) -> ...:
-        """Возвращает загрузку процессора."""
+    def prepare_metrics_collection(self) -> None:
+        """
+        Инициализирует неблокирующее измерение CPU.
+
+        Этот метод и последующие get_metrics() должны вызываться
+        из одного и того же потока.
+        """
+        psutil.cpu_percent(interval=None)
+
+    def get_metrics(self) -> MetricStatistics:
+        """Возвращает один неблокирующий замер загрузки CPU."""
         cpu_utilization = MetricStatistics(unit="percent")
+
         cpu_utilization.history.append(
             DataPoint(
-                time_in_ms=int(time.time() * 1000),
-                value=psutil.cpu_percent(interval=0.1),
+                time_in_ms=time.time_ns() // 1_000_000,
+                value=psutil.cpu_percent(interval=None),
             )
         )
 

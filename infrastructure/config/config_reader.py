@@ -9,6 +9,7 @@ from typing import Any
 from pathlib import Path
 from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
 from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig
+from core.enums.model import DeviceType
 
 
 def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
@@ -25,6 +26,7 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
     payload = benchmark_data.model_dump(exclude={"runs", "formats"})
     payload["runs"] = tuple(runs)
     payload["formats"] = tuple(benchmark_data.formats)
+    payload["device_type"] = DeviceType(benchmark_data.device_type) # .lower()
     return BenchmarkConfig(**payload)
 
 

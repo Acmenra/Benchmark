@@ -2,6 +2,8 @@
 
 import logging
 from enum import Enum
+from uuid import UUID
+
 from acmenra_cv import (
     DeviceType as _DeviceType, 
     TaskType as _TaskType
@@ -46,6 +48,35 @@ class ModelFormat(Enum):
     COREML = 'coreml'  # для Apple Silicon (будущее)
 
 
+_ULTRALYTICS_EXPORT_FORMAT: dict[str, str | None] = {
+    ModelFormat.PYTORCH.value: None,
+    ModelFormat.ONNX.value: 'onnx',
+    ModelFormat.TENSORRT.value: 'engine',
+    ModelFormat.OPENVINO.value: 'openvino',
+    ModelFormat.RKNN.value: 'rknn',
+    ModelFormat.COREML.value: 'coreml',
+}
+
+_EXPORT_EXTENSION: dict[str, str] = {
+    ModelFormat.ONNX.value: '.onnx',
+    ModelFormat.TENSORRT.value: '.engine',
+    ModelFormat.OPENVINO.value: '.openvino',  # экспорт создаёт директорию
+    ModelFormat.RKNN.value: '.rknn',
+    ModelFormat.COREML.value: '.mlpackage',
+}
+
+
+def ultralytics_export_format(fmt: str) -> str | None:
+    """Возвращает аргумент format для YOLO.export() по строке формата.
+    """
+    return _ULTRALYTICS_EXPORT_FORMAT.get(fmt)
+
+
+def export_extension(fmt: str) -> str | None:
+    """Вернуть расширение файла (или директории) артефакта экспорта."""
+    return _EXPORT_EXTENSION.get(fmt)
+
+
 class ModelSize(Enum):
     NANO = 'n'      # ~3M params, fastest
     SMALL = 's'     # ~11M params, balanced
@@ -60,6 +91,7 @@ class ModelFamily(Enum):
     YOLOV10 = 'yolov10'
     YOLOV11 = 'yolov11'
     YOLOV12 = 'yolov12'  # placeholder для будущих версий
+    YOLO26 = 'yolo26'
     PRISM = 'prism'      # Acmenra custom architecture
     RTDETR = 'rtdetr'    # Real-time DETR
     EFFICIENTDET = 'efficientdet'
@@ -84,11 +116,16 @@ class MetricType(Enum):
     MAP_50 = 'map_50'
     MAP_50_95 = 'map_50_95'
 
+
+class BaseMetric:
+    """Базовая заглушка для будущих enum/entity метрик."""
+
+
 class Metric(BaseMetric):
-    def __init__(self, uuid: uuid, counter: int, metric_type: MetricType):
-        uuid = uuid # Общий, полностью уникальный id
-        counter = counter # номер "прогона"
-        value = 0 # значение
+    def __init__(self, metric_uuid: UUID, counter: int, metric_type: MetricType):
+        self.uuid = metric_uuid # Общий, полностью уникальный id
+        self.counter = counter # номер "прогона"
+        self.value = 0 # значение
         self._metric_type = metric_type # тип значения
 
 

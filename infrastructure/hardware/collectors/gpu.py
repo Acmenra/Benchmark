@@ -1,447 +1,329 @@
 # infrastructure/hardware/collectors/gpu.py
 
 import logging
-from pathlib import Path
-import re
+import platform as platform_module
 import shutil
 import subprocess
+import time
+from pathlib import Path
+from typing import Any
 
 from core.entities.config import SystemInfoConfig
+from core.entities.hardware import GPUInfo
+from core.entities.metrics import DataPoint, GPUMetrics, MetricStatistics
+from core.enums.hardware import PlatformType
+from infrastructure.hardware.collectors.base import BaseCollector
 
 logger = logging.getLogger(__name__)
 
-import pynvml
-import platform
-
-from core.entities.hardware import GPUInfo
-from infrastructure.hardware.collectors.base import BaseCollector
-
 
 class GPUCollector(BaseCollector):
-    def __init__(self, system_info_config: SystemInfoConfig):
-        self.system_info_config = system_info_config
+    """Сборщик статической информации и runtime-метрик GPU."""
+
+    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+        super().__init__(
+            system_info_config
+            or SystemInfoConfig(
+                collect_gpu=True,
+                collect_power=False,
+                collect_temperature=False,
+            )
+        )
+        self._pynvml: Any | None = None
+        self._handle: Any | None = None
+        self._platform_type = self._detect_platform()
+        self._nvidia_smi_available = shutil.which("nvidia-smi") is not None
+        self._init_nvml()
 
     def info(self) -> GPUInfo:
-        if self._pynvml_available():
-            return self._info_pynvml()
+        """Вернуть статическую информацию о GPU."""
+        return self.get_hardware_info()
 
-        if self._nvidia_smi_available():
-            return self._info_nvidia_smi()
+    def tmp(self) -> MetricStatistics | None:
+        """Вернуть текущую температуру GPU в градусах Цельсия."""
+        temperature = self._get_nvml_temperature()
+        if temperature is None:
+            temperature = self._get_smi_float("temperature.gpu")
+        return _build_metric(value=temperature, unit="celsius")
 
+    def frq(self) -> MetricStatistics | None:
+        """Вернуть текущую частоту GPU в МГц."""
+        frequency = self._get_nvml_frequency()
+        if frequency is None:
+            frequency = self._get_smi_float("clocks.gr")
+        return _build_metric(value=frequency, unit="mhz")
+
+    def prsnt(self) -> MetricStatistics | None:
+        """Вернуть текущий процент загрузки GPU."""
+        utilization = self._get_nvml_utilization()
+        if utilization is None:
+            utilization = self._get_smi_float("utilization.gpu")
+        return _build_metric(value=utilization, unit="percent")
+
+    def mem(self) -> MetricStatistics | None:
+        """Вернуть текущий объем занятой VRAM в мегабайтах."""
+        memory_used_mb = self._get_nvml_memory_used_mb()
+        if memory_used_mb is None:
+            memory_used_mb = self._get_smi_float("memory.used")
+        return _build_metric(value=memory_used_mb, unit="megabyte")
+
+    def power(self) -> MetricStatistics | None:
+        """Вернуть текущее энергопотребление GPU в ваттах."""
+        power_watts = self._get_nvml_power_watts()
+        if power_watts is None:
+            power_watts = self._get_smi_float("power.draw")
+        return _build_metric(value=power_watts, unit="watt")
+
+    def get_hardware_info(self) -> GPUInfo:
+        """Вернуть статическую информацию о GPU."""
+        # Сейчас реальные GPU-данные собираются через NVIDIA-инструменты.
+        # Для Jetson/Raspberry Pi/Hailo ветки уже выделены через _detect_platform,
+        # но платформенные источники метрик будут добавляться отдельными шагами.
+        if self._is_nvml_available():
+            return self._get_nvml_info()
+        if self._nvidia_smi_available:
+            return self._get_smi_info()
         return GPUInfo(
             name=None,
             memory_mb=None,
             driver_version=None,
-            has_cuda=False,
             cuda_version=None,
         )
 
-    def tmp(self) -> float | None:
-        if self._jetson():
-            return self._temperature_tegrastats()
-        
-        if self._pynvml_available():
-            return self._temperature_pynvml()
+    def get_metrics(self) -> GPUMetrics:
+        """Вернуть один снимок доступных runtime-метрик GPU."""
+        # На неподдержанных платформах методы вернут None, а benchmark продолжит работу.
+        # Это важно для Mac/Raspberry Pi/Orange Pi, где NVIDIA/NVML может отсутствовать.
+        return GPUMetrics(
+            vram_usage=self.mem(),
+            gpu_power=self.power(),
+            gpu_utilization=self.prsnt(),
+            gpu_temperature=self.tmp(),
+        )
 
-        if self._nvidia_smi_available():
-            return self._query_nvidia_smi("temperature.gpu")
-        
-        if platform.system() == "Linux":
-            return self._temperature_hwmon()
+    def _init_nvml(self) -> None:
+        try:
+            import pynvml
+        except ImportError:
+            return
 
-        return None
-
-    def frq(self) -> float | None:
-        if self._jetson():
-            return self._frq_tegrastats()
-        
-        if self._pynvml_available():
-            return self._frq_pynvml()
-        
-        if self._nvidia_smi_available():
-            return self._query_nvidia_smi("clocks.current.graphics")
-        
-        if platform.system() == "Linux":
-            return self._frq_linux()
-        
-        return None
-    
-    def prsnt(self) -> ...:
-        pass
-
-    def mem(self) -> float | None:
-        if self._jetson():
-            return self._mem_tegrastats()
-        
-        if self._pynvml_available():
-            return self._mem_pynvml()
-        
-        if self._nvidia_smi_available():
-            return self._query_nvidia_smi("memory.used")
-        
-        if platform.system() == "Linux":
-            return self._mem_linux()
-        
-        return None
-
-
-    def power(self) -> float | None:
-        if self._pynvml_available():
-            return self._power_pynvml()
-        
-        if self._nvidia_smi_available():
-            return self._query_nvidia_smi("power.draw")
-        
-        if platform.system() == "Linux":
-            return self._power_linux()
-        
-        return None
-
-#             <---------- доступность драйверов ---------->
-
-    def _pynvml_available(self) -> bool:
         try:
             pynvml.nvmlInit()
-            pynvml.nvmlShutdown()
-            return True
-        except:
-            return False
-
-    def _nvidia_smi_available(self) -> bool:
-        try:
-            if shutil.which("nvidia-smi") is None:
-                return False
-
-            result = subprocess.run(
-                ["nvidia-smi", "-L"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            return result.returncode == 0 and bool(result.stdout.strip())
+            if pynvml.nvmlDeviceGetCount() == 0:
+                return
+            self._pynvml = pynvml
+            self._handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         except Exception:
-            return False
+            self._pynvml = None
+            self._handle = None
 
-    def _jetson(self) -> bool:
-        return (
-            Path("/etc/nv_tegra_release").exists()
-            or Path("/proc/device-tree/model").read_text(
-                errors="ignore"
-            ).lower().find("nvidia jetson") >= 0
-        )
+    def _detect_platform(self) -> PlatformType:
+        """Определить аппаратную платформу по доступным локальным признакам."""
+        device_model = _read_text(Path("/proc/device-tree/model")).lower()
 
-#             <---------- информация о GPU ---------->
+        if "raspberry pi" in device_model:
+            return PlatformType.RASPBERRY_PI
 
-    def _info_pynvml(self) -> GPUInfo:
-        pynvml.nvmlInit()
+        # Orin входит в семейство Jetson, пока отдельного enum для Orin нет.
+        if "jetson" in device_model or "orin" in device_model:
+            return PlatformType.JETSON
 
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        name = pynvml.nvmlDeviceGetName(handle)
-        memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        memory_mb = int(int(memory.total) / (1024 ** 2))
-        driver_version = pynvml.nvmlSystemGetDriverVersion()
-        cuda_version = str(pynvml.nvmlSystemGetCudaDriverVersion_v2())
+        if Path("/etc/nv_tegra_release").exists():
+            return PlatformType.JETSON
 
-        pynvml.nvmlShutdown()
+        if "intel nuc" in device_model:
+            return PlatformType.INTEL_NUC
+
+        if "hailo" in device_model:
+            return PlatformType.HAILO
+
+        # В текущем PlatformType нет Orange Pi. Пока оставляем UNKNOWN,
+        # чтобы позже добавить отдельную ветку без ломки GPUCollector.
+        if "orange pi" in device_model:
+            return PlatformType.UNKNOWN
+
+        system = platform_module.system()
+        if system in {"Darwin", "Windows", "Linux"}:
+            return PlatformType.DESKTOP
+
+        return PlatformType.UNKNOWN
+
+    def _is_nvml_available(self) -> bool:
+        return self._pynvml is not None and self._handle is not None
+
+    def _get_nvml_info(self) -> GPUInfo:
+        if not self._is_nvml_available():
+            return GPUInfo(None, None, None, None)
+
+        assert self._pynvml is not None
+        assert self._handle is not None
+
+        name = _decode_nvml_value(self._pynvml.nvmlDeviceGetName(self._handle))
+        memory = self._pynvml.nvmlDeviceGetMemoryInfo(self._handle)
+        driver_version = _decode_nvml_value(self._pynvml.nvmlSystemGetDriverVersion())
 
         return GPUInfo(
             name=name,
-            memory_mb=memory_mb,
+            memory_mb=int(memory.total / 1024 / 1024),
             driver_version=driver_version,
-            has_cuda=True,
-            cuda_version=cuda_version
+            cuda_version=self._get_nvml_cuda_version(),
         )
 
-    def _info_nvidia_smi(self) -> GPUInfo:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,driver_version",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-
-        if result.returncode != 0:
-            return GPUInfo()
-
-        line = result.stdout.strip().splitlines()[0]
-
-        name, memory, driver = [
-            value.strip()
-            for value in line.split(",")
-        ]
-
-        return GPUInfo(
-            name=name,
-            memory_mb=int(memory),
-            driver_version=driver,
-            has_cuda=True,
-            cuda_version=self._cuda_version_nvidia_smi(),
-        )
-
-    def _cuda_version_nvidia_smi(self) -> str | None:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-
-        if result.returncode != 0:
+    def _get_nvml_cuda_version(self) -> str | None:
+        if self._pynvml is None:
             return None
 
-        match = re.search(
-            r"CUDA Version:\s+(\d+\.\d+)",
-            result.stdout,
+        try:
+            version = self._pynvml.nvmlSystemGetCudaDriverVersion()
+        except Exception:
+            return None
+
+        major = version // 1000
+        minor = (version % 1000) // 10
+        return f"{major}.{minor}"
+
+    def _get_nvml_utilization(self) -> float | None:
+        if not self._is_nvml_available():
+            return None
+
+        try:
+            utilization = self._pynvml.nvmlDeviceGetUtilizationRates(self._handle)
+        except Exception:
+            return None
+        return float(utilization.gpu)
+
+    def _get_nvml_memory_used_mb(self) -> float | None:
+        if not self._is_nvml_available():
+            return None
+
+        try:
+            memory = self._pynvml.nvmlDeviceGetMemoryInfo(self._handle)
+        except Exception:
+            return None
+        return float(memory.used / 1024 / 1024)
+
+    def _get_nvml_temperature(self) -> float | None:
+        if not self._is_nvml_available():
+            return None
+
+        try:
+            temperature = self._pynvml.nvmlDeviceGetTemperature(
+                self._handle,
+                self._pynvml.NVML_TEMPERATURE_GPU,
+            )
+        except Exception:
+            return None
+        return float(temperature)
+
+    def _get_nvml_power_watts(self) -> float | None:
+        if not self._is_nvml_available():
+            return None
+
+        try:
+            power_milliwatts = self._pynvml.nvmlDeviceGetPowerUsage(self._handle)
+        except Exception:
+            return None
+        return float(power_milliwatts / 1000)
+
+    def _get_nvml_frequency(self) -> float | None:
+        if not self._is_nvml_available():
+            return None
+
+        try:
+            frequency = self._pynvml.nvmlDeviceGetClockInfo(
+                self._handle,
+                self._pynvml.NVML_CLOCK_GRAPHICS,
+            )
+        except Exception:
+            return None
+        return float(frequency)
+
+    def _get_smi_info(self) -> GPUInfo:
+        values = self._query_nvidia_smi("name,memory.total,driver_version")
+        if values is None or len(values) < 3:
+            return GPUInfo(None, None, None, None)
+
+        return GPUInfo(
+            name=values[0],
+            memory_mb=_to_int(values[1]),
+            driver_version=values[2],
+            cuda_version=None,
         )
 
-        if match:
-            return match.group(1)
+    def _get_smi_float(self, query: str) -> float | None:
+        values = self._query_nvidia_smi(query)
+        if not values:
+            return None
+        return _to_float(values[0])
 
-        return None
-    
-#             <---------- nvidea smi ---------->
+    def _query_nvidia_smi(self, query: str) -> list[str] | None:
+        if not self._nvidia_smi_available:
+            return None
 
-    def _query_nvidia_smi(self, query: str) -> float | None:
         try:
             result = subprocess.run(
                 [
                     "nvidia-smi",
                     f"--query-gpu={query}",
                     "--format=csv,noheader,nounits",
+                    "-i",
+                    "0",
                 ],
+                check=True,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=3,
             )
-
-            if result.returncode != 0:
-                return None
-
-            return float(result.stdout.strip().splitlines()[0])
-        except:
+        except (OSError, subprocess.SubprocessError):
             return None
 
-#             <---------- ТЕМПЕРАТУРА ---------->
-
-    def _temperature_pynvml(self) -> float:
-        pynvml.nvmlInit()
-
-        # берется первая видеокарта
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-
-        pynvml.nvmlShutdown()
-        
-        return temperature
-
-    def _temperature_hwmon(self) -> float | None:
-        hwmon_root = Path("/sys/class/hwmon")
-        if not hwmon_root.exists():
+        first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        if not first_line:
             return None
+        return [value.strip() for value in first_line.split(",")]
 
-        gpu_driver_names = (
-            "nvidia",
-            "amdgpu",
-            "radeon",
-            "i915",
-            "nouveau",
+
+def collect_gpu() -> GPUInfo:
+    """Собрать базовую информацию о GPU через общий GPUCollector."""
+    return GPUCollector().get_hardware_info()
+
+
+def _build_metric(value: float | int | None, unit: str) -> MetricStatistics | None:
+    if value is None:
+        return None
+
+    metric = MetricStatistics(unit=unit)
+    metric.history.append(
+        DataPoint(
+            time_in_ms=int(time.time() * 1000),
+            value=value,
         )
+    )
+    return metric
 
-        for hwmon_dir in hwmon_root.iterdir():
-            try:
-                name_file = hwmon_dir / "name"
-                if not name_file.exists():
-                    continue
 
-                driver_name = name_file.read_text(encoding="utf-8", errors="ignore").strip().lower()
+def _decode_nvml_value(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+    return value
 
-                if not any(token in driver_name for token in gpu_driver_names):
-                    continue
 
-                for temp_input in sorted(hwmon_dir.glob("temp*_input")):
-                    try:
-                        raw_value = temp_input.read_text(encoding="utf-8", errors="ignore").strip()
-                        return float(raw_value) / 1000.0
-                    except:
-                        continue
-            except:
-                continue
- 
+def _to_float(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
         return None
 
-    def _temperature_tegrastats(self) -> float | None:
-        process = None
 
-        try:
-            process = subprocess.Popen(
-                ["tegrastats", "--interval", "1000"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-
-            if process.stdout is None:
-                return None
-            line = process.stdout.readline()
-
-            match = re.search(
-                r"GPU@(\d+)C",
-                line
-            )
-
-            if match:
-                return float(match.group(1))
-        except:
-            pass
-        finally:
-            if process:
-                process.terminate()
-
-        return None
-    
-#             <---------- ЧАСТОТА ---------->
-
-    def _frq_pynvml(self) -> float:
-        pynvml.nvmlInit()
-
-        # берется первая видеокарта
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        frq = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_SM) 
-
-        pynvml.nvmlShutdown()
-
-        return frq         # возвращает значение в МГц
-
-    def _frq_tegrastats(self) -> float | None:
-        process = None
-
-        try:
-            process = subprocess.Popen(
-                ["tegrastats"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-
-            if process.stdout is None:
-                return None
-            line = process.stdout.readline()
-
-            match = re.search(r"GR3D_FREQ \d+%@(\d+)", line)
-            if match:
-                return float(match.group(1))
-
-        except:
-            pass
-
-        finally:
-            if process is not None:
-                process.terminate()
-
+def _to_int(value: str) -> int | None:
+    try:
+        return int(float(value))
+    except ValueError:
         return None
 
-    def _frq_linux(self) -> float | None:
-        frequency_files = (
-            Path("/sys/class/drm/card0/device/pp_dpm_sclk"),     # AMD
-            Path("/sys/class/drm/card0/gt_cur_freq_mhz"),        # Intel
-        )
 
-        for path in frequency_files:
-            if not path.exists():
-                continue
-
-            try:
-                if path.name == "gt_cur_freq_mhz":
-                    return float(path.read_text().strip())
-
-                if path.name == "pp_dpm_sclk":
-                    for line in path.read_text().splitlines():
-                        if "*" in line:
-                            value = line.split(":")[1].split("Mhz")[0].strip()
-                            return float(value)
-            except:
-                continue
-
-        return None
-
-#             <---------- ПАМЯТЬ ---------->
-
-    def _mem_tegrastats(self) -> None:
-        # Jetson использует общую оперативную память (UMA).
-        # Tegrastats не предоставляет объем памяти,
-        # используемой только GPU.
-        return None
-
-    def _mem_pynvml(self) -> float | None:
-        pynvml.nvmlInit()
-
-        # берется первая видеокарта
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-        pynvml.nvmlShutdown()
-
-        return int(memory.used) / (1024 ** 2)  # возвращает занятое значение в MB
-
-    def _mem_linux(self) -> float | None:
-        # AMD
-        vram_used = Path("/sys/class/drm/card0/device/mem_info_vram_used")
-        if vram_used.exists():
-            try:
-                return int(vram_used.read_text().strip()) / (1024 ** 2)  # MB
-            except:
-                pass
-
-        return None # другие драйверы не предоставляют универсального интерфейса
-
-#             <---------- ЭНЕРГИЯ ---------->
-
-    def _power_pynvml(self) -> float:
-        pynvml.nvmlInit()
-
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        power = pynvml.nvmlDeviceGetPowerUsage(handle) # милливаттах
-
-        pynvml.nvmlShutdown()
-
-        return power / 1000
-
-    def _power_linux(self) -> float | None:
-        # актуально только для AMD
-        hwmon_root = Path("/sys/class/hwmon")
-        if not hwmon_root.exists():
-            return None
-
-        gpu_driver_names = (
-            "amdgpu",
-        )
-
-        for hwmon_dir in hwmon_root.iterdir():
-            try:
-                name_file = hwmon_dir / "name"
-                if not name_file.exists():
-                    continue
-
-                driver_name = name_file.read_text().strip().lower()
-
-                if driver_name not in gpu_driver_names:
-                    continue
-
-                power_file = hwmon_dir / "power1_average"
-                if not power_file.exists():
-                    continue
-
-                return int(power_file.read_text().strip()) / 1_000_000 # возвращает в W
-
-            except (OSError, ValueError):
-                continue
-
-        return None
-
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""

@@ -1,18 +1,22 @@
 # core/entities/config.py
 
 import logging
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 from typing import Any
 from pathlib import Path
 from dataclasses import dataclass, fields, is_dataclass
+from core.enums.model import DeviceType
 
 
 def to_plain_dict(value: Any) -> Any:
     """Преобразует dataclass-объекты и вложенные структуры в словари."""
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, Enum):
+        return value.value
     if isinstance(value, dict):
         return {k: to_plain_dict(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -61,6 +65,7 @@ class BenchmarkConfig(_ConfigBase):
 
     runs: tuple[BenchmarkRun, ...]
     formats: tuple[str, ...] = ()
+    device_type: DeviceType | None = None
     input_size: int | None = None
     batch_size: int | None = None
     warmup_iterations: int | None = None

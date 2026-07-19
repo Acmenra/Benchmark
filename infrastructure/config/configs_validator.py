@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 from typing import Any
 
+from core.enums.model import DeviceType
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
@@ -76,7 +77,30 @@ class _BenchmarkConfigInputSchema(BaseModel):
     main_iterations: int | None = None
     confidence_threshold: float | None = None
     test_images: str | None = None
+    device_type: str | None = None
 
+    @field_validator("device_type")
+    @classmethod
+    def validate_device_type(cls, value: str | DeviceType | None) -> str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, DeviceType):
+            return value.value.lower()
+
+        if not isinstance(value, str):
+            raise ValueError("device_type must be a non-empty string")
+
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("device_type must be a non-empty string")
+
+        try:
+            DeviceType(normalized)
+        except ValueError as exc:
+            raise ValueError(f"device_type must be a valid device string, got {value}") from exc
+        return normalized
+    
     @field_validator("formats")
     @classmethod
     def validate_formats(cls, value: list[str]) -> list[str]:
