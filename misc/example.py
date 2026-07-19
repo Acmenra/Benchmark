@@ -1,4 +1,4 @@
-# misc/main.py
+# misc/example.py
 
 import os
 import cv2
@@ -11,13 +11,13 @@ from ultralytics import YOLO
 from enum import Enum, EnumType
 from typing import Any, List, Dict, Optional
 
-# pip install acmenra-cv==0.2.0.0
+# pip install acmenra-cv==0.2.0.1
 from acmenra_cv import Tracker, TrackedObject
 from acmenra_cv import Font, Fill, Stroke, Style, Drawer, LabelPosition
 from acmenra_cv import Point, Obb, Box, Polygon, Instance, DeviceType, TaskType
 from acmenra_cv import Backend, YOLOBackend
 
-from misc.enums import Coco
+from core.enums.model import Coco
 
 
 
@@ -103,7 +103,7 @@ style = Style(palette=np.random.randint(0, 255, (80, 3)).tolist(),
               label=LabelPosition.OFF)
 
 worker = Worker(style=style,
-                model_path='yolo26n-seg.pt',
+                model_path='yolo26n-seg.pt', # *.enine, *.onnx, *.ncnn, etc.
                 category=Coco,
                 task_type=TaskType.SEGMENT,
                 device=DeviceType.MPS,

@@ -1,11 +1,16 @@
-# hardware/collector.py
+# infrastructure/hardware/collector.py
 
-from configs.config import SystemInfoConfig
+import logging
+
+from core.entities.config import SystemInfoConfig
+from core.entities.hardware import SystemInfo
+from core.enums.hardware import PlatformType
 from infrastructure.hardware.collectors.cpu import collect_cpu
-from infrastructure.hardware.entities import SystemInfo
-from infrastructure.hardware.enums import HardwarePlatform
 from infrastructure.hardware.collectors.gpu import collect_gpu
 from infrastructure.hardware.collectors.operating_system import collect_os
+from infrastructure.hardware.collectors.temperature import collect_temperature
+
+logger = logging.getLogger(__name__)
 
 
 class HardwareCollector:
@@ -25,17 +30,20 @@ class HardwareCollector:
         self.system_info_config = system_info_config
 
     def get_system_info(self) -> SystemInfo:
-        cpu = collect_cpu() if ... else None
+        cpu = collect_cpu()
         gpu = collect_gpu() if self.system_info_config.collect_gpu else None
-        os = collect_os() if ... else None
-        ...
-        
-        raise NotImplementedError()
-    
+        os_info = collect_os()
+        temperature = (
+            collect_temperature()
+            if self.system_info_config.collect_temperature
+            else None
+        )
+
         return SystemInfo(
-            HardwarePlatform.UNKNOWN,
-            '',
+            platform=PlatformType.UNKNOWN,
+            device_name=None,
             cpu=cpu,
             gpu=gpu,
-            os=os,
+            os=os_info,
+            temperature=temperature,
         )

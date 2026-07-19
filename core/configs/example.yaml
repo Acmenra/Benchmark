@@ -1,0 +1,32 @@
+benchmark:
+  runs:
+    - models:
+        - family: yolo26
+          sizes: [n]
+
+  formats:
+    - pytorch
+    - onnx
+    - tensorrt
+    - openvino
+
+  device_type: auto
+  input_size: 640
+  batch_size: 1
+  warmup_iterations: 10
+  main_iterations: 100
+  confidence_threshold: 0.25
+  test_images: "./dataset"
+
+output:
+  directory: "./results"
+  formats:
+    - json
+    - csv
+    - markdown
+  timestamp: true
+
+system_info:
+  collect_gpu: true
+  collect_power: true
+  collect_temperature: true

@@ -1,5 +1,11 @@
+# tests/test_operating_system.py
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 from infrastructure.hardware.collectors.operating_system import _empty_to_none, collect_os
-from infrastructure.hardware.entities import OSInfo
+from core.entities.hardware import OSInfo
 
 
 def test_collect_os_returns_os_info() -> None:

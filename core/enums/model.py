@@ -1,23 +1,23 @@
-# misc/enums.py
+# core/enums/model.py
 
 import logging
-from enum import Enum, EnumType
+from enum import Enum
+from uuid import UUID
 
+from acmenra_cv import (
+    DeviceType as _DeviceType, 
+    TaskType as _TaskType
+)
 
 logger = logging.getLogger(__name__)
 
 
-class TaskType(Enum): ... # TODO тянем с acmenra-cv
+TaskType = _TaskType 
 
 
-class DeviceType(Enum): ... # TODO тянем с acmenra-cv
+DeviceType = _DeviceType
 
 
-class QuantizationLevel(Enum):
-    FP32 = 'fp32'   # Полная точность, нет оптимизации
-    FP16 = 'fp16'   # Половинная точность, 2× ускорение на GPU
-    INT8 = 'int8'   # 8-битное квантование, 4× ускорение, потеря точности
-    INT4 = 'int4'   # 4-битное квантование, экспериментально
 
 
 class ExportTarget(Enum):
@@ -25,21 +25,18 @@ class ExportTarget(Enum):
     ARM64 = 'arm64'
     RISC_V = 'risc_v'  # для будущих edge-чипов
 
-
+# reporter.py
 class ReportFormat(Enum):
     JSON = 'json'
     CSV = 'csv'
     MARKDOWN = 'markdown'
     HTML = 'html'
 
-
-class PlatformType(Enum):
-    DESKTOP = 'desktop'
-    JETSON = 'jetson'
-    RASPBERRY_PI = 'raspberry_pi'
-    INTEL_NUC = 'intel_nuc'
-    HAILO = 'hailo'
-    UNKNOWN = 'unknown'  # fallback для неопознанных систем
+class QuantizationLevel(Enum):
+    FP32 = 'fp32'   # Полная точность, нет оптимизации
+    FP16 = 'fp16'   # Половинная точность, 2× ускорение на GPU
+    INT8 = 'int8'   # 8-битное квантование, 4× ускорение, потеря точности
+    INT4 = 'int4'   # 4-битное квантование, экспериментально
 
 
 class ModelFormat(Enum):
@@ -49,6 +46,35 @@ class ModelFormat(Enum):
     OPENVINO = 'openvino'
     RKNN = 'rknn'
     COREML = 'coreml'  # для Apple Silicon (будущее)
+
+
+_ULTRALYTICS_EXPORT_FORMAT: dict[str, str | None] = {
+    ModelFormat.PYTORCH.value: None,
+    ModelFormat.ONNX.value: 'onnx',
+    ModelFormat.TENSORRT.value: 'engine',
+    ModelFormat.OPENVINO.value: 'openvino',
+    ModelFormat.RKNN.value: 'rknn',
+    ModelFormat.COREML.value: 'coreml',
+}
+
+_EXPORT_EXTENSION: dict[str, str] = {
+    ModelFormat.ONNX.value: '.onnx',
+    ModelFormat.TENSORRT.value: '.engine',
+    ModelFormat.OPENVINO.value: '.openvino',  # экспорт создаёт директорию
+    ModelFormat.RKNN.value: '.rknn',
+    ModelFormat.COREML.value: '.mlpackage',
+}
+
+
+def ultralytics_export_format(fmt: str) -> str | None:
+    """Возвращает аргумент format для YOLO.export() по строке формата.
+    """
+    return _ULTRALYTICS_EXPORT_FORMAT.get(fmt)
+
+
+def export_extension(fmt: str) -> str | None:
+    """Вернуть расширение файла (или директории) артефакта экспорта."""
+    return _EXPORT_EXTENSION.get(fmt)
 
 
 class ModelSize(Enum):
@@ -65,9 +91,11 @@ class ModelFamily(Enum):
     YOLOV10 = 'yolov10'
     YOLOV11 = 'yolov11'
     YOLOV12 = 'yolov12'  # placeholder для будущих версий
+    YOLO26 = 'yolo26'
     PRISM = 'prism'      # Acmenra custom architecture
     RTDETR = 'rtdetr'    # Real-time DETR
     EFFICIENTDET = 'efficientdet'
+
 
 
 class MetricType(Enum):
@@ -87,6 +115,18 @@ class MetricType(Enum):
     # Точность (если есть ground truth)
     MAP_50 = 'map_50'
     MAP_50_95 = 'map_50_95'
+
+
+class BaseMetric:
+    """Базовая заглушка для будущих enum/entity метрик."""
+
+
+class Metric(BaseMetric):
+    def __init__(self, metric_uuid: UUID, counter: int, metric_type: MetricType):
+        self.uuid = metric_uuid # Общий, полностью уникальный id
+        self.counter = counter # номер "прогона"
+        self.value = 0 # значение
+        self._metric_type = metric_type # тип значения
 
 
 class Coco(Enum):
