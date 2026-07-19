@@ -91,6 +91,7 @@ class ModelFamily(Enum):
     YOLOV10 = 'yolov10'
     YOLOV11 = 'yolov11'
     YOLOV12 = 'yolov12'  # placeholder для будущих версий
+    YOLO26 = 'yolo26'
     PRISM = 'prism'      # Acmenra custom architecture
     RTDETR = 'rtdetr'    # Real-time DETR
     EFFICIENTDET = 'efficientdet'

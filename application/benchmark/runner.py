@@ -13,8 +13,9 @@ from ultralytics import YOLO
 
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import ModelBenchmarkResult
+from core.entities.metrics import ModelBenchmarkResult, QualityMetrics
 from core.enums.model import Coco, DeviceType, TaskType, export_extension, ultralytics_export_format
+from infrastructure.metrics.quality import YOLOQualityMetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,9 @@ class BenchmarkRunner:
                     collector.stop_run()
 
                 raw_result = collector.get()
+                
+                quality_metrics = self._collect_quality_metrics(model, family, size)
+                
                 results.append(
                     ModelBenchmarkResult(
                         model={
@@ -69,6 +73,7 @@ class BenchmarkRunner:
                         performance=raw_result.performance,
                         cpu=raw_result.cpu,
                         gpu=raw_result.gpu,
+                        quality=quality_metrics,
                     )
                 )
 
@@ -81,6 +86,13 @@ class BenchmarkRunner:
         dataset_path = Path(self.benchmark_config.test_images)
         if not dataset_path.is_dir():
             raise ValueError(f"Dataset path not found: {dataset_path}")
+        
+        # Если в папке есть подпапка 'images/', используем её
+        # (для структур где датасет содержит images/ и labels/)
+        images_subdir = dataset_path / "images"
+        if images_subdir.is_dir():
+            return images_subdir
+        
         return dataset_path
 
     def _collect_image_paths(self, dataset_path: Path) -> list[Path]:
@@ -197,6 +209,65 @@ class BenchmarkRunner:
             return DeviceType.CPU
         
         return device_type
+
+    def _collect_quality_metrics(
+        self, model: YOLOBackend, family: str, size: str
+    ) -> QualityMetrics | None:
+        """Собирает метрики качества модели.
+        
+        Args:
+            model: Загруженная модель для инференса.
+            family: Семейство модели.
+            size: Размер модели.
+            
+        Returns:
+            QualityMetrics с рассчитанными метриками или None если сбор не удалось выполнить.
+        """
+        try:
+            # Наличие датасета с разметкой для валидации
+            validation_paths = [
+                Path("dataset"),
+                Path("dataset/val"),
+                Path("dataset/validation"),
+                Path("dataset/coco"),
+                Path("data/val"),
+            ]
+            
+            dataset_path = None
+            for path in validation_paths:
+                if path.exists() and (path / "images").exists():
+                    dataset_path = path
+                    break
+            
+            if dataset_path is None:
+                logger.debug(
+                    "Датасет с разметкой не найден для %s%s, пропускаю сбор метрик качества",
+                    family,
+                    size,
+                )
+                return None
+            
+            logger.info("Собираю метрики качества для %s%s на датасете: %s", 
+                       family, size, dataset_path)
+            
+            collector = YOLOQualityMetricsCollector(
+                yolo_backend=model,
+                dataset_path=dataset_path,
+                imgsz=self.benchmark_config.input_size or 640,
+                conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
+            )
+            
+            quality_metrics = collector.collect()
+            return quality_metrics
+            
+        except Exception as e:
+            logger.warning(
+                "Не удалось собрать метрики качества для %s%s: %s",
+                family,
+                size,
+                e,
+            )
+            return None
 
     def _warmup(self, backend: YOLOBackend) -> None:
         input_size = self.benchmark_config.input_size or 640

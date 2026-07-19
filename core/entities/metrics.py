@@ -180,6 +180,16 @@ class BenchmarkResult:
 
 
 @dataclass(slots=True)
+class QualityMetrics:
+    """Метрики качества модели."""
+    recall: float | None = None
+    precision: float | None = None
+    f1_score: float | None = None
+    map50: float | None = None
+    map50_95: float | None = None
+
+
+@dataclass(slots=True)
 class ModelBenchmarkResult:
     """
     Результат бенчмарка для ОДНОЙ модели в рамках кейса.
@@ -189,3 +199,4 @@ class ModelBenchmarkResult:
     performance: LatencyStats | None = None
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None
+    quality: QualityMetrics | None = None
