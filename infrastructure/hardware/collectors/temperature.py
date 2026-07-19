@@ -1,14 +1,13 @@
 # infrastructure/hardware/collectors/temperature.py
 
 import logging
-
-logger = logging.getLogger(__name__)
-
 import os
 import platform
 import subprocess
 
 from core.entities.hardware import TemperatureCapabilitiesInfo
+
+logger = logging.getLogger(__name__)
 
 # TODO прибрать!
 
@@ -21,6 +20,41 @@ def collect_temperature() -> TemperatureCapabilitiesInfo:
         cpu_sensor_available=cpu_available,
         gpu_sensor_available=gpu_available
     )
+
+
+def collect_cpu_temperature_celsius() -> float | None:
+    """Вернуть текущую температуру CPU/SoC в градусах Цельсия, если она доступна."""
+    system = platform.system()
+
+    if system == "Darwin":
+        # На Apple Silicon температура CPU/GPU часто доступна как температура SoC/MPS.
+        try:
+            from infrastructure.hardware.collectors.mps import MPSCollector
+
+            temperature = MPSCollector().tmp()
+            if temperature is not None:
+                return temperature
+        except Exception:
+            pass
+
+    temperature = _get_cpu_temperature_system()
+    if temperature is not None:
+        return temperature
+
+    temperature = _get_cpu_temperature_thermal_zone()
+    if temperature is not None:
+        return temperature
+
+    if system == "Linux":
+        # На edge-устройствах часть температурных датчиков может быть привязана к NPU.
+        try:
+            from infrastructure.hardware.collectors.npu import NPUCollector
+
+            return NPUCollector().tmp()
+        except Exception:
+            pass
+
+    return None
 
 
 def _check_cpu_temperature_available() -> bool:

@@ -2,11 +2,14 @@
 
 import logging
 import threading
+import time
 
 from application.benchmark.metrics.base import MetricCollector
 from core.entities.config import SystemInfoConfig
-from core.entities.metrics import CPUMetrics, MetricStatistics
+from core.entities.metrics import CPUMetrics, DataPoint, MetricStatistics
 from infrastructure.hardware.collectors.cpu import CPUCollector
+from infrastructure.hardware.collectors.power import collect_cpu_power_watts
+from infrastructure.hardware.collectors.temperature import collect_cpu_temperature_celsius
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,10 @@ class CPUMetricsCollector(MetricCollector):
             )
         )
         self._cpu_utilization = MetricStatistics(unit="percent")
+        self._cpu_power = MetricStatistics(unit="watt")
+        self._cpu_temperature = MetricStatistics(unit="celsius")
+        self._collect_cpu_power = True
+        self._collect_cpu_temperature = True
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -43,6 +50,10 @@ class CPUMetricsCollector(MetricCollector):
                 return
 
             self._cpu_utilization = MetricStatistics(unit="percent")
+            self._cpu_power = MetricStatistics(unit="watt")
+            self._cpu_temperature = MetricStatistics(unit="celsius")
+            self._collect_cpu_power = True
+            self._collect_cpu_temperature = True
             self._stop_event.clear()
             thread = threading.Thread(
                 target=self._collect_loop,
@@ -68,8 +79,14 @@ class CPUMetricsCollector(MetricCollector):
         cpu_utilization = MetricStatistics(unit=self._cpu_utilization.unit)
         with self._lock:
             cpu_utilization.history.extend(self._cpu_utilization.history)
+            cpu_power = _copy_metric_or_none(self._cpu_power)
+            cpu_temperature = _copy_metric_or_none(self._cpu_temperature)
 
-        return CPUMetrics(cpu_utilization=cpu_utilization)
+        return CPUMetrics(
+            cpu_power=cpu_power,
+            cpu_utilization=cpu_utilization,
+            cpu_temperature=cpu_temperature,
+        )
 
     def _collect_loop(self) -> None:
         self.cpu_collector.prepare_metrics_collection()
@@ -86,11 +103,42 @@ class CPUMetricsCollector(MetricCollector):
 
     def _collect_once(self) -> None:
         cpu_utilization = self.cpu_collector.get_metrics()
+        cpu_power = collect_cpu_power_watts() if self._collect_cpu_power else None
+        cpu_temperature = (
+            collect_cpu_temperature_celsius()
+            if self._collect_cpu_temperature
+            else None
+        )
 
-        # CPUCollector возвращает один снимок,
+        if cpu_power is None:
+            self._collect_cpu_power = False
+        if cpu_temperature is None:
+            self._collect_cpu_temperature = False
+
+        # Низкоуровневые collectors возвращают один снимок,
         # а здесь мы накапливаем историю за весь benchmark-прогон.
         with self._lock:
             self._cpu_utilization.history.extend(cpu_utilization.history)
+            _append_metric_sample(self._cpu_power, cpu_power)
+            _append_metric_sample(self._cpu_temperature, cpu_temperature)
 
-    # Сейчас collector собирает только cpu_utilization.
-    # cpu_power и cpu_temperature будут подключены позже через отдельные collectors.
+
+def _append_metric_sample(metric: MetricStatistics, value: float | int | None) -> None:
+    if value is None:
+        return
+
+    metric.history.append(
+        DataPoint(
+            time_in_ms=time.time_ns() // 1_000_000,
+            value=value,
+        )
+    )
+
+
+def _copy_metric_or_none(metric: MetricStatistics) -> MetricStatistics | None:
+    if not metric.history:
+        return None
+
+    copied_metric = MetricStatistics(unit=metric.unit)
+    copied_metric.history.extend(metric.history)
+    return copied_metric
