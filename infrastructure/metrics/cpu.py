@@ -39,6 +39,8 @@ class CPUMetricsCollector(MetricCollector):
         self._cpu_temperature = MetricStatistics(unit="celsius")
         self._collect_cpu_power = True
         self._collect_cpu_temperature = True
+        self._cpu_temperature_failures = 0
+        self._max_cpu_temperature_failures = 3
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -54,6 +56,7 @@ class CPUMetricsCollector(MetricCollector):
             self._cpu_temperature = MetricStatistics(unit="celsius")
             self._collect_cpu_power = True
             self._collect_cpu_temperature = True
+            self._cpu_temperature_failures = 0
             self._stop_event.clear()
             thread = threading.Thread(
                 target=self._collect_loop,
@@ -113,7 +116,11 @@ class CPUMetricsCollector(MetricCollector):
         if cpu_power is None:
             self._collect_cpu_power = False
         if cpu_temperature is None:
-            self._collect_cpu_temperature = False
+            self._cpu_temperature_failures += 1
+            if self._cpu_temperature_failures >= self._max_cpu_temperature_failures:
+                self._collect_cpu_temperature = False
+        else:
+            self._cpu_temperature_failures = 0
 
         # Низкоуровневые collectors возвращают один снимок,
         # а здесь мы накапливаем историю за весь benchmark-прогон.

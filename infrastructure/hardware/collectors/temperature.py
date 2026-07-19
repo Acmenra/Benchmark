@@ -3,7 +3,9 @@
 import logging
 import os
 import platform
+import re
 import subprocess
+from pathlib import Path
 
 from core.entities.hardware import TemperatureCapabilitiesInfo
 
@@ -34,8 +36,8 @@ def collect_cpu_temperature_celsius() -> float | None:
             temperature = MPSCollector().tmp()
             if temperature is not None:
                 return temperature
-        except Exception:
-            pass
+        except Exception as error:
+            logger.debug("Не удалось получить температуру через MPSCollector: %s", error)
 
     temperature = _get_cpu_temperature_system()
     if temperature is not None:
@@ -51,8 +53,8 @@ def collect_cpu_temperature_celsius() -> float | None:
             from infrastructure.hardware.collectors.npu import NPUCollector
 
             return NPUCollector().tmp()
-        except Exception:
-            pass
+        except Exception as error:
+            logger.debug("Не удалось получить температуру через NPUCollector: %s", error)
 
     return None
 
@@ -64,23 +66,7 @@ def _check_cpu_temperature_available() -> bool:
     1. WMI на Windows / psutil на Linux/macOS
     2. Чтение из /sys/class/thermal/ (Linux/Jetson/RPi)
     """
-    try:
-        # Метод 1: системные API (Windows WMI, Linux psutil)
-        temps = _get_cpu_temperature_system()
-        if temps is not None:
-            return True
-    except Exception:
-        pass
-    
-    try:
-        # Метод 2: через файловую систему thermal zones
-        temps = _get_cpu_temperature_thermal_zone()
-        if temps is not None:
-            return True
-    except Exception:
-        pass
-    
-    return False
+    return collect_cpu_temperature_celsius() is not None
 
 
 def _check_gpu_temperature_available() -> bool:
@@ -94,20 +80,20 @@ def _check_gpu_temperature_available() -> bool:
     try:
         if _check_nvidia_gpu():
             return True
-    except Exception:
-        pass
+    except Exception as error:
+        logger.debug("Не удалось проверить NVIDIA GPU через pynvml: %s", error)
 
     try:
         if _check_nvidia_gpu_via_smi():
             return True
-    except Exception:
-        pass
+    except Exception as error:
+        logger.debug("Не удалось проверить NVIDIA GPU через nvidia-smi: %s", error)
     
     try:
         if _check_platform_gpu():
             return True
-    except Exception:
-        pass
+    except Exception as error:
+        logger.debug("Не удалось проверить платформенный GPU-датчик: %s", error)
     
     return False
 
@@ -125,8 +111,8 @@ def _get_cpu_temperature_system() -> float | None:
                             temp = reading.current
                             if _is_valid_temperature(temp):
                                 return temp
-    except (AttributeError, OSError, ImportError):
-        pass
+    except (AttributeError, OSError, ImportError) as error:
+        logger.debug("psutil не вернул CPU temperature: %s", error)
 
     if platform.system() == "Windows":
         return _get_cpu_temperature_windows_wmi()
@@ -150,14 +136,28 @@ def _get_cpu_temperature_windows_wmi() -> float | None:
                 temp_celsius = float(item.HighPrecisionTemperature) / 100.0
                 if _is_valid_temperature(temp_celsius):
                     return temp_celsius
-    except (ImportError, AttributeError, OSError):
-        pass
+    except (ImportError, AttributeError, OSError) as error:
+        logger.debug("WMI не вернул CPU temperature: %s", error)
 
     return None
 
 
 def _get_cpu_temperature_thermal_zone() -> float | None:
     """Получение температуры CPU из системных тепловых зон Linux."""
+    for zone_path in sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp")):
+        temperature = _read_temperature_path(zone_path)
+        if temperature is not None:
+            return temperature
+
+    for zone_path in sorted(Path("/sys/devices/virtual/thermal").glob("thermal_zone*/temp")):
+        temperature = _read_temperature_path(zone_path)
+        if temperature is not None:
+            return temperature
+
+    for hwmon_path in sorted(Path("/sys/class/hwmon").glob("hwmon*/temp*_input")):
+        temperature = _read_temperature_path(hwmon_path)
+        if temperature is not None:
+            return temperature
 
     # Поиск температурных зон в порядке приоритета
     thermal_zones = [
@@ -167,17 +167,39 @@ def _get_cpu_temperature_thermal_zone() -> float | None:
     ]
     
     for zone_path in thermal_zones:
-        try:
-            if os.path.exists(zone_path):
-                with open(zone_path, "r") as f:
-                    temp_raw = f.read().strip()
-                    # В Linux температуру нужно делить на 1000
-                    temp_celsius = float(temp_raw) / 1000.0
-                    if _is_valid_temperature(temp_celsius):
-                        return temp_celsius
-        except (IOError, ValueError, OSError):
-            continue
+        temperature = _read_temperature_path(Path(zone_path))
+        if temperature is not None:
+            return temperature
     
+    return None
+
+
+def _read_temperature_path(path: Path) -> float | None:
+    """Прочитать температуру из sysfs/procfs в градусах Цельсия."""
+    if not path.exists():
+        return None
+
+    try:
+        raw_value = path.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError as error:
+        logger.debug("Не удалось прочитать temperature path %s: %s", path, error)
+        return None
+
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", raw_value)
+    if match is None:
+        return None
+
+    try:
+        temperature = float(match.group(0))
+    except ValueError:
+        return None
+
+    if temperature >= 1000:
+        temperature = temperature / 1000.0
+
+    if _is_valid_temperature(temperature):
+        return temperature
+
     return None
 
 
@@ -204,8 +226,8 @@ def _check_nvidia_gpu_via_smi() -> bool:
         FileNotFoundError,
         ValueError,
         OSError,
-    ):
-        pass
+    ) as error:
+        logger.debug("nvidia-smi не вернул GPU temperature: %s", error)
 
     return False
 
@@ -238,8 +260,9 @@ def _check_nvidia_gpu() -> bool:
     except ImportError:
         # pynvml не установлена
         return False
-    except Exception:
+    except Exception as error:
         # NVIDIA Driver не найден/другие ошибки
+        logger.debug("pynvml не вернул GPU temperature: %s", error)
         return False
 
 
@@ -259,8 +282,8 @@ def _check_platform_gpu() -> bool:
             output = result.decode().strip()
             if "temp=" in output:
                 return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as error:
+            logger.debug("vcgencmd не вернул GPU temperature: %s", error)
     
     # NVIDIA JETSON 
     if system == "Linux" and os.path.exists("/etc/nv_tegra_release"):
@@ -277,8 +300,8 @@ def _check_platform_gpu() -> bool:
                         temp_celsius = float(temp_raw) / 1000.0
                         if _is_valid_temperature(temp_celsius):
                             return True
-        except (IOError, ValueError, OSError):
-            pass
+        except (IOError, ValueError, OSError) as error:
+            logger.debug("Jetson thermal zones не вернули GPU temperature: %s", error)
     
     return False
 

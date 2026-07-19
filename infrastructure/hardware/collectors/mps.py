@@ -34,18 +34,22 @@ class MPSCollector:
         """Получить температуру через powermetrics на macOS."""
         try:
             result = subprocess.run(
-                ["powermetrics", "-n", "1", "--samplers", "smc"],
+                ["powermetrics", "-n", "1", "--samplers", "thermal"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode != 0:
+                logger.debug("powermetrics не вернул MPS temperature: %s", result.stderr)
                 return None
 
             for line in result.stdout.splitlines():
                 for pattern in (
                     r"CPU die temperature:\s+([\d.]+)\s+C",
                     r"GPU die temperature:\s+([\d.]+)\s+C",
+                    r"CPU.*temperature:\s+([\d.]+)\s+C",
+                    r"GPU.*temperature:\s+([\d.]+)\s+C",
+                    r"SoC.*temperature:\s+([\d.]+)\s+C",
                 ):
                     match = re.search(pattern, line)
                     if match is None:
@@ -54,8 +58,8 @@ class MPSCollector:
                     temp = float(match.group(1))
                     if _is_valid_temperature(temp):
                         return temp
-        except (OSError, subprocess.SubprocessError, ValueError):
-            pass
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            logger.debug("powermetrics не вернул MPS temperature: %s", error)
 
         return None
 
@@ -74,7 +78,7 @@ class MPSCollector:
                 for reading in readings:
                     if _is_valid_temperature(reading.current):
                         return reading.current
-        except (AttributeError, OSError, ImportError):
-            pass
+        except (AttributeError, OSError, ImportError) as error:
+            logger.debug("psutil не вернул MPS temperature: %s", error)
 
         return None

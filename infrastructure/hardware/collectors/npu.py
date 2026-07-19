@@ -61,9 +61,11 @@ class NPUCollector:
                         temp = float(raw_value) / 1000.0
                         if _is_valid_temperature(temp):
                             return temp
-                    except (OSError, ValueError):
+                    except (OSError, ValueError) as error:
+                        logger.debug("hwmon %s не вернул NPU temperature: %s", temp_input, error)
                         continue
-            except OSError:
+            except OSError as error:
+                logger.debug("hwmon %s не удалось проверить как NPU sensor: %s", hwmon_dir, error)
                 continue
 
         return None
@@ -82,7 +84,8 @@ class NPUCollector:
                 temp = float(path.read_text(encoding="utf-8", errors="ignore").strip())
                 if _is_valid_temperature(temp):
                     return temp
-            except (OSError, ValueError):
+            except (OSError, ValueError) as error:
+                logger.debug("Hailo sysfs %s не вернул NPU temperature: %s", path, error)
                 continue
 
         return None
