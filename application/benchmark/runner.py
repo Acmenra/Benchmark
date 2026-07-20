@@ -1,5 +1,6 @@
 # application/benchmark/runner.py
 
+import gc
 import glob
 import logging
 import os
@@ -15,7 +16,13 @@ from ultralytics import YOLO
 
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import ModelBenchmarkResult, QualityMetrics
+from core.entities.metrics import (
+    CPUMetrics,
+    GPUMetrics,
+    LatencyStats,
+    ModelBenchmarkResult,
+    QualityMetrics,
+)
 from core.enums.model import (
     Coco,
     DeviceType,
@@ -31,11 +38,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True, frozen=True)
 class ResolvedModelArtifact:
-    """Фактически выбранный артефакт модели после export/fallback."""
+    """Фактически выбранный артефакт модели."""
 
     path: Path
     quantization: str
-    fallback_from: str | None = None
 
 
 class BenchmarkRunner:
@@ -70,31 +76,69 @@ class BenchmarkRunner:
                         quantization,
                     )
                     if artifact is None:
-                        logger.warning(
-                            "Формат %s с квантованием %s для %s%s недоступен — пропуск",
-                            format_,
-                            quantization,
-                            family,
-                            size,
+                        results.append(
+                            self._build_status_result(
+                                family=family,
+                                size=size,
+                                format_=format_,
+                                actual_quantization=None,
+                                status="skipped",
+                                error=(
+                                    "Модель не подготовлена: формат или квантование "
+                                    "не поддержаны текущим pipeline"
+                                ),
+                            )
                         )
                         continue
 
                     collector = MetricsCollector(case)
-                    model = self._build_yolo_backend(
-                        artifact.path,
-                        artifact.quantization,
-                    )
-
+                    model: YOLOBackend | None = None
+                    run_failed = False
                     try:
+                        model = self._build_yolo_backend(
+                            artifact.path,
+                            artifact.quantization,
+                        )
                         self._warmup(model)
                         collector.start_run()
                         self._run_model_on_images(model, image_paths, collector)
+                    except Exception as error:
+                        logger.exception(
+                            "Ошибка benchmark-прогона %s%s/%s/%s",
+                            family,
+                            size,
+                            format_,
+                            quantization,
+                        )
+                        raw_result = collector.get()
+                        run_failed = True
+                        results.append(
+                            self._build_status_result(
+                                family=family,
+                                size=size,
+                                format_=format_,
+                                actual_quantization=artifact.quantization,
+                                status="failed",
+                                error=str(error),
+                                performance=raw_result.performance,
+                                cpu=raw_result.cpu,
+                                gpu=raw_result.gpu,
+                            )
+                        )
                     finally:
                         collector.stop_run()
+                        if run_failed:
+                            self._cleanup_model_resources(model)
+
+                    if run_failed:
+                        continue
 
                     raw_result = collector.get()
 
-                    quality_metrics = self._collect_quality_metrics(model, family, size)
+                    try:
+                        quality_metrics = self._collect_quality_metrics(model, family, size)
+                    finally:
+                        self._cleanup_model_resources(model)
 
                     results.append(
                         ModelBenchmarkResult(
@@ -103,8 +147,8 @@ class BenchmarkRunner:
                                 "size": size,
                                 "format": format_,
                                 "quantization": artifact.quantization,
-                                "requested_quantization": quantization,
                             },
+                            status="success",
                             performance=raw_result.performance,
                             cpu=raw_result.cpu,
                             gpu=raw_result.gpu,
@@ -113,6 +157,34 @@ class BenchmarkRunner:
                     )
 
         return results
+
+    def _build_status_result(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        actual_quantization: str | None,
+        status: str,
+        error: str | None,
+        performance: LatencyStats | None = None,
+        cpu: CPUMetrics | None = None,
+        gpu: GPUMetrics | None = None,
+    ) -> ModelBenchmarkResult:
+        """Собрать результат для success/skipped/failed статусов."""
+        return ModelBenchmarkResult(
+            model={
+                "family": family,
+                "size": size,
+                "format": format_,
+                "quantization": actual_quantization,
+            },
+            status=status,
+            error=error,
+            performance=performance,
+            cpu=cpu,
+            gpu=gpu,
+            quality=None,
+        )
 
     def _get_dataset_path(self) -> Path:
         if self.benchmark_config.test_images is None:
@@ -177,45 +249,14 @@ class BenchmarkRunner:
         format_: str,
         quantization: str = QuantizationLevel.FP32.value,
     ) -> ResolvedModelArtifact | None:
-        """Вернуть модель нужного формата или fallback на fp32.
-
-        Важно не подписывать fallback-артефакт как квантованный, иначе отчет
-        будет показывать int8/fp16 там, где фактически запустилась fp32 модель.
-        """
+        """Вернуть модель строго в запрошенном формате и квантовании."""
         requested_quantization = self._normalize_quantization(quantization)
 
-        artifact = self._try_resolve_model_artifact(
+        return self._try_resolve_model_artifact(
             family,
             size,
             format_,
             requested_quantization,
-        )
-        if artifact is not None:
-            return artifact
-
-        if requested_quantization == QuantizationLevel.FP32.value:
-            return None
-
-        logger.warning(
-            "Квантование %s для %s%s/%s недоступно, пробую fallback на fp32",
-            requested_quantization,
-            family,
-            size,
-            format_,
-        )
-        fallback_artifact = self._try_resolve_model_artifact(
-            family,
-            size,
-            format_,
-            QuantizationLevel.FP32.value,
-        )
-        if fallback_artifact is None:
-            return None
-
-        return ResolvedModelArtifact(
-            path=fallback_artifact.path,
-            quantization=fallback_artifact.quantization,
-            fallback_from=requested_quantization,
         )
 
     def resolve_model_path(
@@ -313,18 +354,12 @@ class BenchmarkRunner:
             return True
 
         unsupported_message = (
-            "Квантование %s для формата %s сейчас не поддержано, будет fallback"
+            "Квантование %s для формата %s сейчас не поддержано, кейс будет пропущен"
         )
 
         if format_ == "pytorch":
             # .pt остается исходным PyTorch-файлом; квантованный артефакт
             # появляется только после export в другой backend/format.
-            logger.warning(unsupported_message, quantization, format_)
-            return False
-
-        if format_ == "openvino":
-            # В текущей версии пайплайна OpenVINO export стабильно запускаем
-            # только в fp32. Квантование вернем после отдельной проверки NNCF.
             logger.warning(unsupported_message, quantization, format_)
             return False
 
@@ -442,9 +477,81 @@ class BenchmarkRunner:
         
         if device_str in ('npu', 'gpu', 'tpu', 'tensorrt', 'npu:rk3588', 'npu:intel', 'npu:hailo', 'tpu:coral'):
             logger.warning(f"Device '{device_str}' не поддерживается ultralytics, используется 'cpu'")
-            return DeviceType.CPU
+        return DeviceType.CPU
         
         return device_type
+
+    def _cleanup_model_resources(self, model: YOLOBackend | None) -> None:
+        """Освободить ресурсы модели после одного benchmark-прогона."""
+        if model is None:
+            return
+
+        raw_model = getattr(model, "model", None)
+        self._call_cleanup_method(model)
+        self._call_cleanup_method(raw_model)
+
+        # Ultralytics хранит predictor внутри YOLO-модели и может держать
+        # ссылки на backend/session между predict-вызовами.
+        predictor = getattr(raw_model, "predictor", None)
+        if predictor is not None:
+            self._clear_predictor_resources(predictor)
+
+        self._clear_torch_caches()
+        self._destroy_cv2_windows()
+        gc.collect()
+
+    def _call_cleanup_method(self, value: object | None) -> None:
+        """Вызвать close/release, если объект backend это поддерживает."""
+        if value is None:
+            return
+
+        for method_name in ("close", "release"):
+            method = getattr(value, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                except Exception as error:
+                    logger.debug("Не удалось вызвать %s(): %s", method_name, error)
+
+    def _clear_predictor_resources(self, predictor: object) -> None:
+        """Очистить тяжелые ссылки predictor после завершения прогона."""
+        for attribute_name in (
+            "dataset",
+            "vid_writer",
+            "plotted_img",
+            "results",
+            "batch",
+        ):
+            try:
+                setattr(predictor, attribute_name, None)
+            except Exception as error:
+                logger.debug(
+                    "Не удалось очистить predictor.%s: %s",
+                    attribute_name,
+                    error,
+                )
+
+    def _clear_torch_caches(self) -> None:
+        """Очистить кэши torch-устройств, если они доступны."""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except Exception as error:
+                logger.debug("Не удалось очистить CUDA IPC cache: %s", error)
+
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.empty_cache()
+            except Exception as error:
+                logger.debug("Не удалось очистить MPS cache: %s", error)
+
+    def _destroy_cv2_windows(self) -> None:
+        """Закрыть окна OpenCV, если backend их создавал."""
+        try:
+            cv2.destroyAllWindows()
+        except Exception as error:
+            logger.debug("Не удалось закрыть окна OpenCV: %s", error)
 
     def _collect_quality_metrics(
         self, model: YOLOBackend, family: str, size: str
