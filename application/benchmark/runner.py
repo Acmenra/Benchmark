@@ -3,6 +3,7 @@
 import glob
 import logging
 import os
+import shutil
 from pathlib import Path
 
 import cv2
@@ -14,7 +15,14 @@ from ultralytics import YOLO
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
 from core.entities.metrics import ModelBenchmarkResult, QualityMetrics
-from core.enums.model import Coco, DeviceType, TaskType, export_extension, ultralytics_export_format
+from core.enums.model import (
+    Coco,
+    DeviceType,
+    QuantizationLevel,
+    TaskType,
+    export_extension,
+    ultralytics_export_format,
+)
 from infrastructure.metrics.quality import YOLOQualityMetricsCollector
 
 logger = logging.getLogger(__name__)
@@ -44,38 +52,51 @@ class BenchmarkRunner:
             size = model_config.size
 
             for format_ in self._get_supported_formats():
-                model_path = self.resolve_model_path(family, size, format_)
-                if model_path is None:
-                    logger.warning("Формат %s для %s%s недоступен — пропуск", format_, family, size)
-                    continue
-
-                collector = MetricsCollector(case)
-                model = self._build_yolo_backend(model_path)
-
-                try:
-                    self._warmup(model)
-                    collector.start_run()
-                    self._run_model_on_images(model, image_paths, collector)
-                finally:
-                    collector.stop_run()
-
-                raw_result = collector.get()
-                
-                quality_metrics = self._collect_quality_metrics(model, family, size)
-                
-                results.append(
-                    ModelBenchmarkResult(
-                        model={
-                            "family": family,
-                            "size": size,
-                            "format": format_,
-                        },
-                        performance=raw_result.performance,
-                        cpu=raw_result.cpu,
-                        gpu=raw_result.gpu,
-                        quality=quality_metrics,
+                for quantization in self._get_quantization_levels():
+                    model_path = self.resolve_model_path(
+                        family,
+                        size,
+                        format_,
+                        quantization,
                     )
-                )
+                    if model_path is None:
+                        logger.warning(
+                            "Формат %s с квантованием %s для %s%s недоступен — пропуск",
+                            format_,
+                            quantization,
+                            family,
+                            size,
+                        )
+                        continue
+
+                    collector = MetricsCollector(case)
+                    model = self._build_yolo_backend(model_path, quantization)
+
+                    try:
+                        self._warmup(model)
+                        collector.start_run()
+                        self._run_model_on_images(model, image_paths, collector)
+                    finally:
+                        collector.stop_run()
+
+                    raw_result = collector.get()
+
+                    quality_metrics = self._collect_quality_metrics(model, family, size)
+
+                    results.append(
+                        ModelBenchmarkResult(
+                            model={
+                                "family": family,
+                                "size": size,
+                                "format": format_,
+                                "quantization": quantization,
+                            },
+                            performance=raw_result.performance,
+                            cpu=raw_result.cpu,
+                            gpu=raw_result.gpu,
+                            quality=quality_metrics,
+                        )
+                    )
 
         return results
 
@@ -111,6 +132,9 @@ class BenchmarkRunner:
     def _get_supported_formats(self) -> tuple[str, ...]:
         return self.benchmark_config.formats or ("pytorch",)
 
+    def _get_quantization_levels(self) -> tuple[str, ...]:
+        return self.benchmark_config.quantization or (QuantizationLevel.FP32.value,)
+
     def _run_model_on_images(
         self,
         model: YOLOBackend,
@@ -132,7 +156,13 @@ class BenchmarkRunner:
             finally:
                 collector.mark_stop()
 
-    def resolve_model_path(self, family: str, size: str, format_: str) -> Path | None:
+    def resolve_model_path(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        quantization: str = QuantizationLevel.FP32.value,
+    ) -> Path | None:
         """Возвращает путь к модели нужного формата.
 
         Для pytorch — прямой путь к .pt. 
@@ -141,7 +171,18 @@ class BenchmarkRunner:
         сконвертировать через YOLO.export() и вернуть путь к результату.
         Возвращает None, если формат неизвестен или экспорт не удался.
         """
+        quantization = self._normalize_quantization(quantization)
+
         if format_ == "pytorch":
+            if quantization not in {
+                QuantizationLevel.FP32.value,
+                QuantizationLevel.FP16.value,
+            }:
+                logger.warning(
+                    "Квантование %s для pytorch .pt не поддержано без экспорта",
+                    quantization,
+                )
+                return None
             return Path(f"{family}{size}.pt")
 
         export_format = ultralytics_export_format(format_)
@@ -149,18 +190,35 @@ class BenchmarkRunner:
         if export_format is None or extension is None:
             logger.warning("Неизвестный формат модели: %s", format_)
             return None
+        if quantization == QuantizationLevel.INT4.value:
+            logger.warning("INT4 пока не поддержан через Ultralytics export")
+            return None
 
-        cached = self._find_cached_artifact(family, size, extension)
+        cached = self._find_cached_artifact(family, size, extension, quantization)
         if cached is not None:
-            logger.info("Найден закэшированный артефакт %s: %s", format_, cached)
+            logger.info(
+                "Найден закэшированный артефакт %s/%s: %s",
+                format_,
+                quantization,
+                cached,
+            )
             return cached
 
         pt_path = Path(f"{family}{size}.pt")
-        logger.info("Экспорт %s%s -> %s", family, size, format_)
+        export_kwargs = self._build_export_kwargs(export_format, quantization)
+        if export_kwargs is None:
+            return None
+
+        logger.info("Экспорт %s%s -> %s/%s", family, size, format_, quantization)
         try:
-            exported = YOLO(str(pt_path)).export(format=export_format)
+            exported = YOLO(str(pt_path)).export(**export_kwargs)
         except Exception:
-            logger.exception("Не удалось экспортировать %s в формат %s", pt_path, format_)
+            logger.exception(
+                "Не удалось экспортировать %s в формат %s/%s",
+                pt_path,
+                format_,
+                quantization,
+            )
             return None
 
         exported_path = Path(exported)
@@ -168,15 +226,91 @@ class BenchmarkRunner:
             logger.error("Экспорт %s завершился без файла: %s", format_, exported_path)
             return None
 
+        target_path = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            quantization,
+        )
+        if target_path != exported_path:
+            if target_path.exists():
+                return target_path
+            shutil.move(str(exported_path), str(target_path))
+            exported_path = target_path
+
         logger.info("Экспорт завершён: %s", exported_path)
         return exported_path
 
-    def _find_cached_artifact(self, family: str, size: str, extension: str) -> Path | None:
+    def _find_cached_artifact(
+        self,
+        family: str,
+        size: str,
+        extension: str,
+        quantization: str,
+    ) -> Path | None:
         """Найти ранее экспортированный артефакт модели по расширению."""
-        candidate = Path(f"{family}{size}{extension}")
+        candidate = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            quantization,
+        )
         return candidate if candidate.exists() else None
 
-    def _build_yolo_backend(self, model_path: Path) -> YOLOBackend:
+    def _build_cached_artifact_path(
+        self,
+        family: str,
+        size: str,
+        extension: str,
+        quantization: str,
+    ) -> Path:
+        """Собрать имя export-артефакта с учётом уровня квантования."""
+        if quantization == QuantizationLevel.FP32.value:
+            return Path(f"{family}{size}{extension}")
+        return Path(f"{family}{size}_{quantization}{extension}")
+
+    def _build_export_kwargs(
+        self,
+        export_format: str,
+        quantization: str,
+    ) -> dict[str, object] | None:
+        """Собрать параметры YOLO.export() для нужного уровня квантования."""
+        export_kwargs: dict[str, object] = {"format": export_format}
+
+        if quantization == QuantizationLevel.FP32.value:
+            return export_kwargs
+
+        if quantization == QuantizationLevel.FP16.value:
+            export_kwargs["half"] = True
+            return export_kwargs
+
+        if quantization == QuantizationLevel.INT8.value:
+            dataset_config_path = self._find_quality_dataset_config()
+            if dataset_config_path is None:
+                logger.warning(
+                    "INT8 export требует data.yaml для калибровки, датасет не найден"
+                )
+                return None
+
+            export_kwargs["int8"] = True
+            export_kwargs["data"] = str(dataset_config_path)
+            return export_kwargs
+
+        return None
+
+    def _normalize_quantization(self, quantization: str) -> str:
+        """Нормализовать значение квантования из конфига."""
+        try:
+            return QuantizationLevel(quantization).value
+        except ValueError:
+            logger.warning("Неизвестный уровень квантования %s, используется fp32", quantization)
+            return QuantizationLevel.FP32.value
+
+    def _build_yolo_backend(
+        self,
+        model_path: Path,
+        quantization: str = QuantizationLevel.FP32.value,
+    ) -> YOLOBackend:
         device = self._normalize_device(self.benchmark_config.device_type)
         return YOLOBackend(
             model=YOLO(str(model_path), task=TaskType.DETECT.value),
@@ -186,7 +320,7 @@ class BenchmarkRunner:
             threshold=self.benchmark_config.confidence_threshold or 0.25,
             iou=0.7,
             imgsz=self.benchmark_config.input_size or 640,
-            half=False,
+            half=quantization == QuantizationLevel.FP16.value,
         )
 
     def _normalize_device(self, device_type: DeviceType | None) -> DeviceType:
