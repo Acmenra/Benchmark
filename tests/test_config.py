@@ -1,20 +1,26 @@
 # tests/test_config.py
 
 import logging
-
-logger = logging.getLogger(__name__)
-
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
 
-from infrastructure.config.config_reader import read_yaml
-from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig, to_plain_dict
-from core.enums.model import DeviceType
 from ddt import data, ddt, unpack
 
+from core.entities.config import (
+    BenchmarkConfig,
+    BenchmarkRun,
+    Config,
+    ModelConfig,
+    OutputConfig,
+    SystemInfoConfig,
+    to_plain_dict,
+)
+from core.enums.model import DeviceType, QuantizationLevel
+from infrastructure.config.config_reader import read_yaml
 from infrastructure.config.configs_validator import ConfigError
+
+logger = logging.getLogger(__name__)
 
 
 @ddt
@@ -106,6 +112,7 @@ class TestBenchmarkConfig(unittest.TestCase):
         config = BenchmarkConfig(
             runs=(run,),
             formats=("pytorch", "onnx"),
+            quantization=("fp32", "fp16"),
             device_type=DeviceType.CPU,
             input_size=640,
             batch_size=1,
@@ -117,6 +124,7 @@ class TestBenchmarkConfig(unittest.TestCase):
         self.assertEqual(config.input_size, 640)
         self.assertEqual(config.batch_size, 1)
         self.assertEqual(config.confidence_threshold, 0.25)
+        self.assertEqual(config.quantization, ("fp32", "fp16"))
 
     def test_to_dict(self) -> None:
         """Сериализация в словарь"""
@@ -124,11 +132,13 @@ class TestBenchmarkConfig(unittest.TestCase):
         config = BenchmarkConfig(
             runs=(run,),
             formats=("pytorch",),
+            quantization=("fp32",),
             input_size=640,
         )
         result = config.to_dict()
         self.assertEqual(result["input_size"], 640)
         self.assertEqual(result["formats"], ["pytorch"])
+        self.assertEqual(result["quantization"], ["fp32"])
 
 
 @ddt
@@ -351,6 +361,9 @@ class TestReadYaml(unittest.TestCase):
           formats:
             - pytorch
             - onnx
+          quantization:
+            - fp32
+            - fp16
           device_type: cuda
           input_size: 640
           batch_size: 1
@@ -374,6 +387,10 @@ class TestReadYaml(unittest.TestCase):
             self.assertIsNotNone(config.benchmark)
             self.assertEqual(config.benchmark.input_size, 640)
             self.assertEqual(config.benchmark.device_type, DeviceType.CUDA)
+            self.assertEqual(
+                config.benchmark.quantization,
+                (QuantizationLevel.FP32.value, QuantizationLevel.FP16.value),
+            )
             self.assertTrue(config.system_info.collect_gpu)
             self.assertFalse(config.system_info.collect_power)
         finally:
@@ -415,6 +432,33 @@ class TestReadYaml(unittest.TestCase):
         try:
             config = read_yaml(temp_path)
             self.assertIsNone(config.system_info)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def test_yaml_without_quantization_uses_fp32(self) -> None:
+        """Если quantization не задан, используется базовый fp32."""
+        yaml_content = """
+        benchmark:
+          runs:
+            - models:
+                - family: yolov8
+                  sizes: [n]
+          formats:
+            - pytorch
+        output:
+          directory: ./results
+          formats:
+            - json
+          timestamp: false
+        """
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+            f.write(yaml_content)
+            temp_path = Path(f.name)
+
+        try:
+            config = read_yaml(temp_path)
+            self.assertIsNotNone(config.benchmark)
+            self.assertEqual(config.benchmark.quantization, (QuantizationLevel.FP32.value,))
         finally:
             temp_path.unlink(missing_ok=True)
 

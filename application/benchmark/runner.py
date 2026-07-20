@@ -1,8 +1,11 @@
 # application/benchmark/runner.py
 
+import gc
 import glob
 import logging
 import os
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -13,11 +16,32 @@ from ultralytics import YOLO
 
 from application.benchmark.metrics.collector import MetricsCollector
 from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import ModelBenchmarkResult, QualityMetrics
-from core.enums.model import Coco, DeviceType, TaskType, export_extension, ultralytics_export_format
+from core.entities.metrics import (
+    CPUMetrics,
+    GPUMetrics,
+    LatencyStats,
+    ModelBenchmarkResult,
+    QualityMetrics,
+)
+from core.enums.model import (
+    Coco,
+    DeviceType,
+    QuantizationLevel,
+    TaskType,
+    export_extension,
+    ultralytics_export_format,
+)
 from infrastructure.metrics.quality import YOLOQualityMetricsCollector
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class ResolvedModelArtifact:
+    """Фактически выбранный артефакт модели."""
+
+    path: Path
+    quantization: str
 
 
 class BenchmarkRunner:
@@ -44,40 +68,123 @@ class BenchmarkRunner:
             size = model_config.size
 
             for format_ in self._get_supported_formats():
-                model_path = self.resolve_model_path(family, size, format_)
-                if model_path is None:
-                    logger.warning("Формат %s для %s%s недоступен — пропуск", format_, family, size)
-                    continue
-
-                collector = MetricsCollector(case)
-                model = self._build_yolo_backend(model_path)
-
-                try:
-                    self._warmup(model)
-                    collector.start_run()
-                    self._run_model_on_images(model, image_paths, collector)
-                finally:
-                    collector.stop_run()
-
-                raw_result = collector.get()
-                
-                quality_metrics = self._collect_quality_metrics(model, family, size)
-                
-                results.append(
-                    ModelBenchmarkResult(
-                        model={
-                            "family": family,
-                            "size": size,
-                            "format": format_,
-                        },
-                        performance=raw_result.performance,
-                        cpu=raw_result.cpu,
-                        gpu=raw_result.gpu,
-                        quality=quality_metrics,
+                for quantization in self._get_quantization_levels():
+                    artifact = self.resolve_model_artifact(
+                        family,
+                        size,
+                        format_,
+                        quantization,
                     )
-                )
+                    if artifact is None:
+                        results.append(
+                            self._build_status_result(
+                                family=family,
+                                size=size,
+                                format_=format_,
+                                actual_quantization=None,
+                                status="skipped",
+                                error=(
+                                    "Модель не подготовлена: формат или квантование "
+                                    "не поддержаны текущим pipeline"
+                                ),
+                            )
+                        )
+                        continue
+
+                    collector = MetricsCollector(case)
+                    model: YOLOBackend | None = None
+                    run_failed = False
+                    try:
+                        model = self._build_yolo_backend(
+                            artifact.path,
+                            artifact.quantization,
+                        )
+                        self._warmup(model)
+                        collector.start_run()
+                        self._run_model_on_images(model, image_paths, collector)
+                    except Exception as error:
+                        logger.exception(
+                            "Ошибка benchmark-прогона %s%s/%s/%s",
+                            family,
+                            size,
+                            format_,
+                            quantization,
+                        )
+                        raw_result = collector.get()
+                        run_failed = True
+                        results.append(
+                            self._build_status_result(
+                                family=family,
+                                size=size,
+                                format_=format_,
+                                actual_quantization=artifact.quantization,
+                                status="failed",
+                                error=str(error),
+                                performance=raw_result.performance,
+                                cpu=raw_result.cpu,
+                                gpu=raw_result.gpu,
+                            )
+                        )
+                    finally:
+                        collector.stop_run()
+                        if run_failed:
+                            self._cleanup_model_resources(model)
+
+                    if run_failed:
+                        continue
+
+                    raw_result = collector.get()
+
+                    try:
+                        quality_metrics = self._collect_quality_metrics(model, family, size)
+                    finally:
+                        self._cleanup_model_resources(model)
+
+                    results.append(
+                        ModelBenchmarkResult(
+                            model={
+                                "family": family,
+                                "size": size,
+                                "format": format_,
+                                "quantization": artifact.quantization,
+                            },
+                            status="success",
+                            performance=raw_result.performance,
+                            cpu=raw_result.cpu,
+                            gpu=raw_result.gpu,
+                            quality=quality_metrics,
+                        )
+                    )
 
         return results
+
+    def _build_status_result(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        actual_quantization: str | None,
+        status: str,
+        error: str | None,
+        performance: LatencyStats | None = None,
+        cpu: CPUMetrics | None = None,
+        gpu: GPUMetrics | None = None,
+    ) -> ModelBenchmarkResult:
+        """Собрать результат для success/skipped/failed статусов."""
+        return ModelBenchmarkResult(
+            model={
+                "family": family,
+                "size": size,
+                "format": format_,
+                "quantization": actual_quantization,
+            },
+            status=status,
+            error=error,
+            performance=performance,
+            cpu=cpu,
+            gpu=gpu,
+            quality=None,
+        )
 
     def _get_dataset_path(self) -> Path:
         if self.benchmark_config.test_images is None:
@@ -111,6 +218,9 @@ class BenchmarkRunner:
     def _get_supported_formats(self) -> tuple[str, ...]:
         return self.benchmark_config.formats or ("pytorch",)
 
+    def _get_quantization_levels(self) -> tuple[str, ...]:
+        return self.benchmark_config.quantization or (QuantizationLevel.FP32.value,)
+
     def _run_model_on_images(
         self,
         model: YOLOBackend,
@@ -132,7 +242,41 @@ class BenchmarkRunner:
             finally:
                 collector.mark_stop()
 
-    def resolve_model_path(self, family: str, size: str, format_: str) -> Path | None:
+    def resolve_model_artifact(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        quantization: str = QuantizationLevel.FP32.value,
+    ) -> ResolvedModelArtifact | None:
+        """Вернуть модель строго в запрошенном формате и квантовании."""
+        requested_quantization = self._normalize_quantization(quantization)
+
+        return self._try_resolve_model_artifact(
+            family,
+            size,
+            format_,
+            requested_quantization,
+        )
+
+    def resolve_model_path(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        quantization: str = QuantizationLevel.FP32.value,
+    ) -> Path | None:
+        """Backward-compatible wrapper: вернуть только путь к модели."""
+        artifact = self.resolve_model_artifact(family, size, format_, quantization)
+        return artifact.path if artifact is not None else None
+
+    def _try_resolve_model_artifact(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        quantization: str,
+    ) -> ResolvedModelArtifact | None:
         """Возвращает путь к модели нужного формата.
 
         Для pytorch — прямой путь к .pt. 
@@ -141,8 +285,15 @@ class BenchmarkRunner:
         сконвертировать через YOLO.export() и вернуть путь к результату.
         Возвращает None, если формат неизвестен или экспорт не удался.
         """
+        quantization = self._normalize_quantization(quantization)
+        if not self._is_quantization_supported(format_, quantization):
+            return None
+
         if format_ == "pytorch":
-            return Path(f"{family}{size}.pt")
+            return ResolvedModelArtifact(
+                path=Path(f"{family}{size}.pt"),
+                quantization=quantization,
+            )
 
         export_format = ultralytics_export_format(format_)
         extension = export_extension(format_)
@@ -150,17 +301,31 @@ class BenchmarkRunner:
             logger.warning("Неизвестный формат модели: %s", format_)
             return None
 
-        cached = self._find_cached_artifact(family, size, extension)
+        cached = self._find_cached_artifact(family, size, extension, quantization)
         if cached is not None:
-            logger.info("Найден закэшированный артефакт %s: %s", format_, cached)
-            return cached
+            logger.info(
+                "Найден закэшированный артефакт %s/%s: %s",
+                format_,
+                quantization,
+                cached,
+            )
+            return ResolvedModelArtifact(path=cached, quantization=quantization)
 
         pt_path = Path(f"{family}{size}.pt")
-        logger.info("Экспорт %s%s -> %s", family, size, format_)
+        export_kwargs = self._build_export_kwargs(export_format, quantization)
+        if export_kwargs is None:
+            return None
+
+        logger.info("Экспорт %s%s -> %s/%s", family, size, format_, quantization)
         try:
-            exported = YOLO(str(pt_path)).export(format=export_format)
+            exported = YOLO(str(pt_path)).export(**export_kwargs)
         except Exception:
-            logger.exception("Не удалось экспортировать %s в формат %s", pt_path, format_)
+            logger.exception(
+                "Не удалось экспортировать %s в формат %s/%s",
+                pt_path,
+                format_,
+                quantization,
+            )
             return None
 
         exported_path = Path(exported)
@@ -168,15 +333,121 @@ class BenchmarkRunner:
             logger.error("Экспорт %s завершился без файла: %s", format_, exported_path)
             return None
 
-        logger.info("Экспорт завершён: %s", exported_path)
-        return exported_path
+        target_path = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            quantization,
+        )
+        if target_path != exported_path:
+            if target_path.exists():
+                return target_path
+            shutil.move(str(exported_path), str(target_path))
+            exported_path = target_path
 
-    def _find_cached_artifact(self, family: str, size: str, extension: str) -> Path | None:
+        logger.info("Экспорт завершён: %s", exported_path)
+        return ResolvedModelArtifact(path=exported_path, quantization=quantization)
+
+    def _is_quantization_supported(self, format_: str, quantization: str) -> bool:
+        """Проверить, есть ли смысл пробовать квантование для формата."""
+        if quantization == QuantizationLevel.FP32.value:
+            return True
+
+        unsupported_message = (
+            "Квантование %s для формата %s сейчас не поддержано, кейс будет пропущен"
+        )
+
+        if format_ == "pytorch":
+            # .pt остается исходным PyTorch-файлом; квантованный артефакт
+            # появляется только после export в другой backend/format.
+            logger.warning(unsupported_message, quantization, format_)
+            return False
+
+        if quantization == QuantizationLevel.INT4.value:
+            logger.warning("INT4 пока не поддержан через Ultralytics export")
+            return False
+
+        supported_formats_by_quantization = {
+            QuantizationLevel.FP16.value: {"onnx", "tensorrt"},
+            QuantizationLevel.INT8.value: {"onnx", "tensorrt"},
+        }
+        supported_formats = supported_formats_by_quantization.get(quantization, set())
+        if format_ not in supported_formats:
+            logger.warning(unsupported_message, quantization, format_)
+            return False
+
+        return True
+
+    def _find_cached_artifact(
+        self,
+        family: str,
+        size: str,
+        extension: str,
+        quantization: str,
+    ) -> Path | None:
         """Найти ранее экспортированный артефакт модели по расширению."""
-        candidate = Path(f"{family}{size}{extension}")
+        candidate = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            quantization,
+        )
         return candidate if candidate.exists() else None
 
-    def _build_yolo_backend(self, model_path: Path) -> YOLOBackend:
+    def _build_cached_artifact_path(
+        self,
+        family: str,
+        size: str,
+        extension: str,
+        quantization: str,
+    ) -> Path:
+        """Собрать имя export-артефакта с учётом уровня квантования."""
+        if quantization == QuantizationLevel.FP32.value:
+            return Path(f"{family}{size}{extension}")
+        return Path(f"{family}{size}_{quantization}{extension}")
+
+    def _build_export_kwargs(
+        self,
+        export_format: str,
+        quantization: str,
+    ) -> dict[str, object] | None:
+        """Собрать параметры YOLO.export() для нужного уровня квантования."""
+        export_kwargs: dict[str, object] = {"format": export_format}
+
+        if quantization == QuantizationLevel.FP32.value:
+            return export_kwargs
+
+        if quantization == QuantizationLevel.FP16.value:
+            export_kwargs["half"] = True
+            return export_kwargs
+
+        if quantization == QuantizationLevel.INT8.value:
+            dataset_config_path = self._find_quality_dataset_config()
+            if dataset_config_path is None:
+                logger.warning(
+                    "INT8 export требует data.yaml для калибровки, датасет не найден"
+                )
+                return None
+
+            export_kwargs["int8"] = True
+            export_kwargs["data"] = str(dataset_config_path)
+            return export_kwargs
+
+        return None
+
+    def _normalize_quantization(self, quantization: str) -> str:
+        """Нормализовать значение квантования из конфига."""
+        try:
+            return QuantizationLevel(quantization).value
+        except ValueError:
+            logger.warning("Неизвестный уровень квантования %s, используется fp32", quantization)
+            return QuantizationLevel.FP32.value
+
+    def _build_yolo_backend(
+        self,
+        model_path: Path,
+        quantization: str = QuantizationLevel.FP32.value,
+    ) -> YOLOBackend:
         device = self._normalize_device(self.benchmark_config.device_type)
         return YOLOBackend(
             model=YOLO(str(model_path), task=TaskType.DETECT.value),
@@ -186,7 +457,7 @@ class BenchmarkRunner:
             threshold=self.benchmark_config.confidence_threshold or 0.25,
             iou=0.7,
             imgsz=self.benchmark_config.input_size or 640,
-            half=False,
+            half=quantization == QuantizationLevel.FP16.value,
         )
 
     def _normalize_device(self, device_type: DeviceType | None) -> DeviceType:
@@ -206,9 +477,81 @@ class BenchmarkRunner:
         
         if device_str in ('npu', 'gpu', 'tpu', 'tensorrt', 'npu:rk3588', 'npu:intel', 'npu:hailo', 'tpu:coral'):
             logger.warning(f"Device '{device_str}' не поддерживается ultralytics, используется 'cpu'")
-            return DeviceType.CPU
+        return DeviceType.CPU
         
         return device_type
+
+    def _cleanup_model_resources(self, model: YOLOBackend | None) -> None:
+        """Освободить ресурсы модели после одного benchmark-прогона."""
+        if model is None:
+            return
+
+        raw_model = getattr(model, "model", None)
+        self._call_cleanup_method(model)
+        self._call_cleanup_method(raw_model)
+
+        # Ultralytics хранит predictor внутри YOLO-модели и может держать
+        # ссылки на backend/session между predict-вызовами.
+        predictor = getattr(raw_model, "predictor", None)
+        if predictor is not None:
+            self._clear_predictor_resources(predictor)
+
+        self._clear_torch_caches()
+        self._destroy_cv2_windows()
+        gc.collect()
+
+    def _call_cleanup_method(self, value: object | None) -> None:
+        """Вызвать close/release, если объект backend это поддерживает."""
+        if value is None:
+            return
+
+        for method_name in ("close", "release"):
+            method = getattr(value, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                except Exception as error:
+                    logger.debug("Не удалось вызвать %s(): %s", method_name, error)
+
+    def _clear_predictor_resources(self, predictor: object) -> None:
+        """Очистить тяжелые ссылки predictor после завершения прогона."""
+        for attribute_name in (
+            "dataset",
+            "vid_writer",
+            "plotted_img",
+            "results",
+            "batch",
+        ):
+            try:
+                setattr(predictor, attribute_name, None)
+            except Exception as error:
+                logger.debug(
+                    "Не удалось очистить predictor.%s: %s",
+                    attribute_name,
+                    error,
+                )
+
+    def _clear_torch_caches(self) -> None:
+        """Очистить кэши torch-устройств, если они доступны."""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except Exception as error:
+                logger.debug("Не удалось очистить CUDA IPC cache: %s", error)
+
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.empty_cache()
+            except Exception as error:
+                logger.debug("Не удалось очистить MPS cache: %s", error)
+
+    def _destroy_cv2_windows(self) -> None:
+        """Закрыть окна OpenCV, если backend их создавал."""
+        try:
+            cv2.destroyAllWindows()
+        except Exception as error:
+            logger.debug("Не удалось закрыть окна OpenCV: %s", error)
 
     def _collect_quality_metrics(
         self, model: YOLOBackend, family: str, size: str
@@ -224,35 +567,22 @@ class BenchmarkRunner:
             QualityMetrics с рассчитанными метриками или None если сбор не удалось выполнить.
         """
         try:
-            # Наличие датасета с разметкой для валидации
-            validation_paths = [
-                Path("dataset"),
-                Path("dataset/val"),
-                Path("dataset/validation"),
-                Path("dataset/coco"),
-                Path("data/val"),
-            ]
-            
-            dataset_path = None
-            for path in validation_paths:
-                if path.exists() and (path / "images").exists():
-                    dataset_path = path
-                    break
-            
-            if dataset_path is None:
+            dataset_config_path = self._find_quality_dataset_config()
+
+            if dataset_config_path is None:
                 logger.debug(
                     "Датасет с разметкой не найден для %s%s, пропускаю сбор метрик качества",
                     family,
                     size,
                 )
                 return None
-            
+
             logger.info("Собираю метрики качества для %s%s на датасете: %s", 
-                       family, size, dataset_path)
-            
+                       family, size, dataset_config_path)
+
             collector = YOLOQualityMetricsCollector(
                 yolo_backend=model,
-                dataset_path=dataset_path,
+                dataset_path=dataset_config_path,
                 imgsz=self.benchmark_config.input_size or 640,
                 conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
             )
@@ -268,6 +598,35 @@ class BenchmarkRunner:
                 e,
             )
             return None
+
+    def _find_quality_dataset_config(self) -> Path | None:
+        """Найти YAML-конфиг датасета для Ultralytics validation."""
+        validation_paths: list[Path] = []
+
+        if self.benchmark_config.test_images is not None:
+            benchmark_dataset_path = Path(self.benchmark_config.test_images)
+            validation_paths.extend(
+                [
+                    benchmark_dataset_path / "data.yaml",
+                    benchmark_dataset_path.parent / "data.yaml",
+                ]
+            )
+
+        validation_paths.extend(
+            [
+                Path("dataset/data.yaml"),
+                Path("dataset/val/data.yaml"),
+                Path("dataset/validation/data.yaml"),
+                Path("dataset/coco/data.yaml"),
+                Path("data/val/data.yaml"),
+            ]
+        )
+
+        for path in validation_paths:
+            if path.is_file():
+                return path
+
+        return None
 
     def _warmup(self, backend: YOLOBackend) -> None:
         input_size = self.benchmark_config.input_size or 640

@@ -1,13 +1,19 @@
 # infrastructure/config/configs_validator.py
 
 import logging
-
-logger = logging.getLogger(__name__)
-
 from typing import Any
 
-from core.enums.model import DeviceType
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from core.enums.model import DeviceType, QuantizationLevel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(ValueError):
@@ -71,6 +77,7 @@ class _BenchmarkConfigInputSchema(BaseModel):
 
     runs: list[_BenchmarkRunInputSchema] = Field(default_factory=list)
     formats: list[str] = Field(default_factory=list)
+    quantization: list[str] = Field(default_factory=list)
     input_size: int | None = None
     batch_size: int | None = None
     warmup_iterations: int | None = None
@@ -107,6 +114,35 @@ class _BenchmarkConfigInputSchema(BaseModel):
         if not all(isinstance(item, str) and item.strip() for item in value):
             raise ValueError("formats must contain non-empty strings")
         return [item.strip() for item in value]
+
+    @field_validator("quantization", mode="before")
+    @classmethod
+    def normalize_quantization(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        return value
+
+    @field_validator("quantization")
+    @classmethod
+    def validate_quantization(cls, value: list[str]) -> list[str]:
+        if not all(isinstance(item, str) and item.strip() for item in value):
+            raise ValueError("quantization must contain non-empty strings")
+
+        normalized_values = [item.strip().lower() for item in value]
+        valid_values = {item.value for item in QuantizationLevel}
+        invalid_values = [
+            item for item in normalized_values
+            if item not in valid_values
+        ]
+        if invalid_values:
+            raise ValueError(
+                f"quantization must contain valid values {sorted(valid_values)}, "
+                f"got {invalid_values}"
+            )
+
+        return normalized_values
 
     @field_validator("test_images")
     @classmethod

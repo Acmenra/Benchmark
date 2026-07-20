@@ -6,6 +6,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, List, Dict
 
+from core.entities.metrics import MetricStatistics
+
 
 def to_plain_data(value: Any) -> Any:
     """Рекурсивно преобразует объекты в примитивы (dict, list, str, int...)."""
@@ -13,6 +15,8 @@ def to_plain_data(value: Any) -> Any:
         return str(value)
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, MetricStatistics):
+        return _metric_statistics_to_report(value)
     if is_dataclass(value):
         return {
             field.name: to_plain_data(getattr(value, field.name))
@@ -32,6 +36,44 @@ def to_plain_data(value: Any) -> Any:
             if not key.startswith("_")
         }
     return value
+
+
+def _metric_statistics_to_report(metric: MetricStatistics) -> dict[str, Any]:
+    """Преобразовать историю метрики в компактную статистику для отчета."""
+    values = _metric_values_without_startup_zero(metric)
+
+    return {
+        "unit": metric.unit,
+        "samples": len(values),
+        "mean": _mean(values),
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+        "min": min(values) if values else None,
+        "max": max(values) if values else None,
+    }
+
+
+def _metric_values_without_startup_zero(metric: MetricStatistics) -> list[float | int]:
+    """Исключить стартовый 0.0, если есть реальные ненулевые замеры."""
+    values = [point.value for point in metric.history]
+    non_zero_values = [value for value in values if value != 0]
+    return non_zero_values or values
+
+
+def _mean(values: list[float | int]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _percentile(values: list[float | int], coeff: float) -> float | None:
+    if not values:
+        return None
+
+    sorted_values = sorted(values)
+    idx = int(coeff * (len(sorted_values) - 1))
+    return sorted_values[min(idx, len(sorted_values) - 1)]
 
 
 def flatten_dict(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:

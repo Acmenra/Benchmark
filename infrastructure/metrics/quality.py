@@ -42,7 +42,7 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
         
         self.yolo_backend = yolo_backend
         self.yolo_model = yolo_backend.model if hasattr(yolo_backend, "model") else yolo_backend
-        self.dataset_path = Path(dataset_path)
+        self.dataset_path = self._resolve_dataset_config(Path(dataset_path))
         self.imgsz = imgsz
         self.conf_threshold = conf_threshold
         self._cached_metrics: QualityMetrics | None = None
@@ -124,6 +124,16 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
         except Exception as e:
             logger.error("Ошибка при валидации модели: %s", e)
             raise
+
+    @staticmethod
+    def _resolve_dataset_config(dataset_path: Path) -> Path:
+        """Вернуть YAML-конфиг датасета, если вместо него передали папку."""
+        if dataset_path.is_dir():
+            dataset_config = dataset_path / "data.yaml"
+            if dataset_config.is_file():
+                return dataset_config
+
+        return dataset_path
 
     @staticmethod
     def _safe_float(value: Any, field_name: str) -> float | None:

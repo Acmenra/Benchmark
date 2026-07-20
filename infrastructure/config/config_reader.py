@@ -1,15 +1,23 @@
 # infrastructure/config/config_reader.py
 
 import logging
-
-logger = logging.getLogger(__name__)
+from pathlib import Path
+from typing import Any
 
 import yaml
-from typing import Any
-from pathlib import Path
+
+from core.entities.config import (
+    BenchmarkConfig,
+    BenchmarkRun,
+    Config,
+    ModelConfig,
+    OutputConfig,
+    SystemInfoConfig,
+)
+from core.enums.model import DeviceType, QuantizationLevel
 from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
-from core.entities.config import BenchmarkConfig, BenchmarkRun, Config, ModelConfig, OutputConfig, SystemInfoConfig
-from core.enums.model import DeviceType
+
+logger = logging.getLogger(__name__)
 
 
 def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
@@ -23,10 +31,17 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
         )
         runs.append(BenchmarkRun(models=models))
 
-    payload = benchmark_data.model_dump(exclude={"runs", "formats"})
+    payload = benchmark_data.model_dump(exclude={"runs", "formats", "quantization"})
     payload["runs"] = tuple(runs)
     payload["formats"] = tuple(benchmark_data.formats)
-    payload["device_type"] = DeviceType(benchmark_data.device_type) # .lower()
+    payload["quantization"] = tuple(
+        benchmark_data.quantization or [QuantizationLevel.FP32.value]
+    )
+    payload["device_type"] = (
+        DeviceType(benchmark_data.device_type)
+        if benchmark_data.device_type is not None
+        else None
+    )
     return BenchmarkConfig(**payload)
 
 

@@ -60,7 +60,7 @@ _ULTRALYTICS_EXPORT_FORMAT: dict[str, str | None] = {
 _EXPORT_EXTENSION: dict[str, str] = {
     ModelFormat.ONNX.value: '.onnx',
     ModelFormat.TENSORRT.value: '.engine',
-    ModelFormat.OPENVINO.value: '.openvino',  # экспорт создаёт директорию
+    ModelFormat.OPENVINO.value: '_openvino_model',  # экспорт создаёт директорию
     ModelFormat.RKNN.value: '.rknn',
     ModelFormat.COREML.value: '.mlpackage',
 }

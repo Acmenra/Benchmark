@@ -196,6 +196,8 @@ class ModelBenchmarkResult:
     Используется для детализированных отчётов по моделям.
     """
     model: Dict[str, Any]  # {family, size, format}
+    status: str = "success"
+    error: str | None = None
     performance: LatencyStats | None = None
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None
