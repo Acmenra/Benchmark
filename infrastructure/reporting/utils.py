@@ -40,16 +40,40 @@ def to_plain_data(value: Any) -> Any:
 
 def _metric_statistics_to_report(metric: MetricStatistics) -> dict[str, Any]:
     """Преобразовать историю метрики в компактную статистику для отчета."""
+    values = _metric_values_without_startup_zero(metric)
+
     return {
         "unit": metric.unit,
-        "samples": len(metric.history),
-        "mean": metric.mean,
-        "p50": metric.median,
-        "p95": metric.p95,
-        "p99": metric.p99,
-        "min": metric.minimum,
-        "max": metric.maximum,
+        "samples": len(values),
+        "mean": _mean(values),
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+        "min": min(values) if values else None,
+        "max": max(values) if values else None,
     }
+
+
+def _metric_values_without_startup_zero(metric: MetricStatistics) -> list[float | int]:
+    """Исключить стартовый 0.0, если есть реальные ненулевые замеры."""
+    values = [point.value for point in metric.history]
+    non_zero_values = [value for value in values if value != 0]
+    return non_zero_values or values
+
+
+def _mean(values: list[float | int]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _percentile(values: list[float | int], coeff: float) -> float | None:
+    if not values:
+        return None
+
+    sorted_values = sorted(values)
+    idx = int(coeff * (len(sorted_values) - 1))
+    return sorted_values[min(idx, len(sorted_values) - 1)]
 
 
 def flatten_dict(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:

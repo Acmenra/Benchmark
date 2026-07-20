@@ -30,3 +30,27 @@ def test_metric_statistics_serializes_as_summary() -> None:
         "min": 10.0,
         "max": 30.0,
     }
+
+
+def test_metric_statistics_ignores_startup_zero_in_summary() -> None:
+    metric = MetricStatistics(unit="percent")
+    metric.history.extend(
+        [
+            DataPoint(time_in_ms=1, value=0.0),
+            DataPoint(time_in_ms=2, value=98.4),
+            DataPoint(time_in_ms=3, value=96.7),
+        ]
+    )
+
+    result = to_plain_data(metric)
+
+    assert result == {
+        "unit": "percent",
+        "samples": 2,
+        "mean": 97.55000000000001,
+        "p50": 96.7,
+        "p95": 96.7,
+        "p99": 96.7,
+        "min": 96.7,
+        "max": 98.4,
+    }
