@@ -15,7 +15,7 @@ benchmark:
     - fp16
     # - int8
 
-  device_type: mps
+  device_type: auto
   input_size: 640
   batch_size: 1
   warmup_iterations: 10
