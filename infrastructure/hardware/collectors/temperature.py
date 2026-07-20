@@ -136,8 +136,8 @@ def _get_cpu_temperature_windows_wmi() -> float | None:
                 temp_celsius = float(item.HighPrecisionTemperature) / 100.0
                 if _is_valid_temperature(temp_celsius):
                     return temp_celsius
-    except (ImportError, AttributeError, OSError) as error:
-        logger.debug("WMI не вернул CPU temperature: %s", error)
+    except:
+        logger.debug("WMI не вернул CPU temperature")
 
     return None
 
