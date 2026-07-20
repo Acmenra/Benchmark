@@ -6,6 +6,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, List, Dict
 
+from core.entities.metrics import MetricStatistics
+
 
 def to_plain_data(value: Any) -> Any:
     """Рекурсивно преобразует объекты в примитивы (dict, list, str, int...)."""
@@ -13,6 +15,8 @@ def to_plain_data(value: Any) -> Any:
         return str(value)
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, MetricStatistics):
+        return _metric_statistics_to_report(value)
     if is_dataclass(value):
         return {
             field.name: to_plain_data(getattr(value, field.name))
@@ -32,6 +36,20 @@ def to_plain_data(value: Any) -> Any:
             if not key.startswith("_")
         }
     return value
+
+
+def _metric_statistics_to_report(metric: MetricStatistics) -> dict[str, Any]:
+    """Преобразовать историю метрики в компактную статистику для отчета."""
+    return {
+        "unit": metric.unit,
+        "samples": len(metric.history),
+        "mean": metric.mean,
+        "p50": metric.median,
+        "p95": metric.p95,
+        "p99": metric.p99,
+        "min": metric.minimum,
+        "max": metric.maximum,
+    }
 
 
 def flatten_dict(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
