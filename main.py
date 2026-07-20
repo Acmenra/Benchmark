@@ -35,8 +35,8 @@ def main() -> None:
 
     if config.benchmark:
         runner = BenchmarkRunner(config.benchmark)
-        results = runner.run_suite()
-        reporter.report(results)
+        for result in runner.run_suite():
+            reporter.report(result)
 
 
 if __name__ == '__main__':

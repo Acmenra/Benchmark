@@ -7,6 +7,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Generator
 
 import cv2
 import numpy as np
@@ -50,19 +51,33 @@ class BenchmarkRunner:
     def __init__(self, benchmark_config: BenchmarkConfig) -> None:
         self.benchmark_config = benchmark_config
 
-    def run_suite(self) -> list[ModelBenchmarkResult]:
-        """Запустить все benchmark-кейсы и вернуть результаты по моделям."""
-        all_results: list[ModelBenchmarkResult] = []
-        for case in self.benchmark_config.runs:
-            case_results = self._run_case(case)
-            all_results.extend(case_results)
-        return all_results
+    def run_suite(self) -> Generator[ModelBenchmarkResult, None, None]:
+        """Запустить все benchmark-кейсы и возвращать результаты по мере готовности.
 
-    def _run_case(self, case: BenchmarkRun) -> list[ModelBenchmarkResult]:
+        Returns:
+            Generator[ModelBenchmarkResult, None, None]: Генератор, выдающий результаты
+            по одному для каждой модели в каждом кейсе.
+        """
+        for case in self.benchmark_config.runs:
+            yield from self._run_case(case)
+
+    def _run_case(self, case: BenchmarkRun) -> Generator[ModelBenchmarkResult, None, None]:
+        """Выполнить один benchmark-кейс и возвращать результаты моделей по мере готовности.
+
+        Args:
+            case (BenchmarkRun): Конфигурация запуска для одного кейса.
+
+        Returns:
+            Generator[ModelBenchmarkResult, None, None]: Генератор, выдающий результаты
+            по одной модели за раз (включая skipped, failed и success).
+
+        Yields:
+            ModelBenchmarkResult: Результат прогона для каждой комбинации
+            (модель, формат, квантование).
+        """
         dataset_path = self._get_dataset_path()
         image_paths = self._collect_image_paths(dataset_path)
 
-        results: list[ModelBenchmarkResult] = []
         for model_config in case.models:
             family = model_config.family
             size = model_config.size
@@ -76,18 +91,16 @@ class BenchmarkRunner:
                         quantization,
                     )
                     if artifact is None:
-                        results.append(
-                            self._build_status_result(
-                                family=family,
-                                size=size,
-                                format_=format_,
-                                actual_quantization=None,
-                                status="skipped",
-                                error=(
-                                    "Модель не подготовлена: формат или квантование "
-                                    "не поддержаны текущим pipeline"
-                                ),
-                            )
+                        yield self._build_status_result(
+                            family=family,
+                            size=size,
+                            format_=format_,
+                            actual_quantization=None,
+                            status="skipped",
+                            error=(
+                                "Модель не подготовлена: формат или квантование "
+                                "не поддержаны текущим pipeline"
+                            ),
                         )
                         continue
 
@@ -112,18 +125,16 @@ class BenchmarkRunner:
                         )
                         raw_result = collector.get()
                         run_failed = True
-                        results.append(
-                            self._build_status_result(
-                                family=family,
-                                size=size,
-                                format_=format_,
-                                actual_quantization=artifact.quantization,
-                                status="failed",
-                                error=str(error),
-                                performance=raw_result.performance,
-                                cpu=raw_result.cpu,
-                                gpu=raw_result.gpu,
-                            )
+                        yield self._build_status_result(
+                            family=family,
+                            size=size,
+                            format_=format_,
+                            actual_quantization=artifact.quantization,
+                            status="failed",
+                            error=str(error),
+                            performance=raw_result.performance,
+                            cpu=raw_result.cpu,
+                            gpu=raw_result.gpu,
                         )
                     finally:
                         collector.stop_run()
@@ -140,23 +151,19 @@ class BenchmarkRunner:
                     finally:
                         self._cleanup_model_resources(model)
 
-                    results.append(
-                        ModelBenchmarkResult(
-                            model={
-                                "family": family,
-                                "size": size,
-                                "format": format_,
-                                "quantization": artifact.quantization,
-                            },
-                            status="success",
-                            performance=raw_result.performance,
-                            cpu=raw_result.cpu,
-                            gpu=raw_result.gpu,
-                            quality=quality_metrics,
-                        )
+                    yield ModelBenchmarkResult(
+                        model={
+                            "family": family,
+                            "size": size,
+                            "format": format_,
+                            "quantization": artifact.quantization,
+                        },
+                        status="success",
+                        performance=raw_result.performance,
+                        cpu=raw_result.cpu,
+                        gpu=raw_result.gpu,
+                        quality=quality_metrics,
                     )
-
-        return results
 
     def _build_status_result(
         self,

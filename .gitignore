@@ -92,3 +92,4 @@ site/
 *.orig
 # test_*.py
 debug_*.py
+/dataset/
