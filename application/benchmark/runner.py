@@ -4,6 +4,7 @@ import glob
 import logging
 import os
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -26,6 +27,15 @@ from core.enums.model import (
 from infrastructure.metrics.quality import YOLOQualityMetricsCollector
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class ResolvedModelArtifact:
+    """Фактически выбранный артефакт модели после export/fallback."""
+
+    path: Path
+    quantization: str
+    fallback_from: str | None = None
 
 
 class BenchmarkRunner:
@@ -53,13 +63,13 @@ class BenchmarkRunner:
 
             for format_ in self._get_supported_formats():
                 for quantization in self._get_quantization_levels():
-                    model_path = self.resolve_model_path(
+                    artifact = self.resolve_model_artifact(
                         family,
                         size,
                         format_,
                         quantization,
                     )
-                    if model_path is None:
+                    if artifact is None:
                         logger.warning(
                             "Формат %s с квантованием %s для %s%s недоступен — пропуск",
                             format_,
@@ -70,7 +80,10 @@ class BenchmarkRunner:
                         continue
 
                     collector = MetricsCollector(case)
-                    model = self._build_yolo_backend(model_path, quantization)
+                    model = self._build_yolo_backend(
+                        artifact.path,
+                        artifact.quantization,
+                    )
 
                     try:
                         self._warmup(model)
@@ -89,7 +102,8 @@ class BenchmarkRunner:
                                 "family": family,
                                 "size": size,
                                 "format": format_,
-                                "quantization": quantization,
+                                "quantization": artifact.quantization,
+                                "requested_quantization": quantization,
                             },
                             performance=raw_result.performance,
                             cpu=raw_result.cpu,
@@ -156,6 +170,54 @@ class BenchmarkRunner:
             finally:
                 collector.mark_stop()
 
+    def resolve_model_artifact(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        quantization: str = QuantizationLevel.FP32.value,
+    ) -> ResolvedModelArtifact | None:
+        """Вернуть модель нужного формата или fallback на fp32.
+
+        Важно не подписывать fallback-артефакт как квантованный, иначе отчет
+        будет показывать int8/fp16 там, где фактически запустилась fp32 модель.
+        """
+        requested_quantization = self._normalize_quantization(quantization)
+
+        artifact = self._try_resolve_model_artifact(
+            family,
+            size,
+            format_,
+            requested_quantization,
+        )
+        if artifact is not None:
+            return artifact
+
+        if requested_quantization == QuantizationLevel.FP32.value:
+            return None
+
+        logger.warning(
+            "Квантование %s для %s%s/%s недоступно, пробую fallback на fp32",
+            requested_quantization,
+            family,
+            size,
+            format_,
+        )
+        fallback_artifact = self._try_resolve_model_artifact(
+            family,
+            size,
+            format_,
+            QuantizationLevel.FP32.value,
+        )
+        if fallback_artifact is None:
+            return None
+
+        return ResolvedModelArtifact(
+            path=fallback_artifact.path,
+            quantization=fallback_artifact.quantization,
+            fallback_from=requested_quantization,
+        )
+
     def resolve_model_path(
         self,
         family: str,
@@ -163,6 +225,17 @@ class BenchmarkRunner:
         format_: str,
         quantization: str = QuantizationLevel.FP32.value,
     ) -> Path | None:
+        """Backward-compatible wrapper: вернуть только путь к модели."""
+        artifact = self.resolve_model_artifact(family, size, format_, quantization)
+        return artifact.path if artifact is not None else None
+
+    def _try_resolve_model_artifact(
+        self,
+        family: str,
+        size: str,
+        format_: str,
+        quantization: str,
+    ) -> ResolvedModelArtifact | None:
         """Возвращает путь к модели нужного формата.
 
         Для pytorch — прямой путь к .pt. 
@@ -172,26 +245,19 @@ class BenchmarkRunner:
         Возвращает None, если формат неизвестен или экспорт не удался.
         """
         quantization = self._normalize_quantization(quantization)
+        if not self._is_quantization_supported(format_, quantization):
+            return None
 
         if format_ == "pytorch":
-            if quantization not in {
-                QuantizationLevel.FP32.value,
-                QuantizationLevel.FP16.value,
-            }:
-                logger.warning(
-                    "Квантование %s для pytorch .pt не поддержано без экспорта",
-                    quantization,
-                )
-                return None
-            return Path(f"{family}{size}.pt")
+            return ResolvedModelArtifact(
+                path=Path(f"{family}{size}.pt"),
+                quantization=quantization,
+            )
 
         export_format = ultralytics_export_format(format_)
         extension = export_extension(format_)
         if export_format is None or extension is None:
             logger.warning("Неизвестный формат модели: %s", format_)
-            return None
-        if quantization == QuantizationLevel.INT4.value:
-            logger.warning("INT4 пока не поддержан через Ultralytics export")
             return None
 
         cached = self._find_cached_artifact(family, size, extension, quantization)
@@ -202,7 +268,7 @@ class BenchmarkRunner:
                 quantization,
                 cached,
             )
-            return cached
+            return ResolvedModelArtifact(path=cached, quantization=quantization)
 
         pt_path = Path(f"{family}{size}.pt")
         export_kwargs = self._build_export_kwargs(export_format, quantization)
@@ -239,7 +305,43 @@ class BenchmarkRunner:
             exported_path = target_path
 
         logger.info("Экспорт завершён: %s", exported_path)
-        return exported_path
+        return ResolvedModelArtifact(path=exported_path, quantization=quantization)
+
+    def _is_quantization_supported(self, format_: str, quantization: str) -> bool:
+        """Проверить, есть ли смысл пробовать квантование для формата."""
+        if quantization == QuantizationLevel.FP32.value:
+            return True
+
+        unsupported_message = (
+            "Квантование %s для формата %s сейчас не поддержано, будет fallback"
+        )
+
+        if format_ == "pytorch":
+            # .pt остается исходным PyTorch-файлом; квантованный артефакт
+            # появляется только после export в другой backend/format.
+            logger.warning(unsupported_message, quantization, format_)
+            return False
+
+        if format_ == "openvino":
+            # В текущей версии пайплайна OpenVINO export стабильно запускаем
+            # только в fp32. Квантование вернем после отдельной проверки NNCF.
+            logger.warning(unsupported_message, quantization, format_)
+            return False
+
+        if quantization == QuantizationLevel.INT4.value:
+            logger.warning("INT4 пока не поддержан через Ultralytics export")
+            return False
+
+        supported_formats_by_quantization = {
+            QuantizationLevel.FP16.value: {"onnx", "tensorrt"},
+            QuantizationLevel.INT8.value: {"onnx", "tensorrt"},
+        }
+        supported_formats = supported_formats_by_quantization.get(quantization, set())
+        if format_ not in supported_formats:
+            logger.warning(unsupported_message, quantization, format_)
+            return False
+
+        return True
 
     def _find_cached_artifact(
         self,
