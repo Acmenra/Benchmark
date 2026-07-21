@@ -45,22 +45,15 @@ models/
 *.pb
 *.tflite
 *.engine
-runs/
 datasets/
-data/
 
-logs/
-*.log
 *.tmp
 *.temp
 .DS_Store
 Thumbs.db
 
 output/
-results/
-predictions/
 *.avi
-*.mp4
 .env
 .env.local
 *.pem

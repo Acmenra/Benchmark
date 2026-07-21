@@ -1,0 +1,37 @@
+# Конфигурация для Raspberry Pi 5 (нет дискретного NVIDIA GPU).
+# Модели те же, что в default.yaml — различаются только форматы/вывод.
+
+benchmark:
+  models:
+    - family: yolov8
+      sizes: [n]
+    - family: yolov11
+      sizes: [n]
+
+  formats: [pytorch, onnx]
+
+  input_size: 640
+  batch_size: 1
+  warmup_iterations: 10
+  main_iterations: null  # null -> весь test_images один раз; числом -> фикс. кол-во замеров
+  confidence_threshold: 0.25
+
+  # test_images: null -> 32 реальных фото с разметкой под `task`, завезённые
+  # в репозиторий — работает офлайн (важно на RPi5 без сети в поле).
+  # test_images: null
+
+  task: detect
+  measure_accuracy: true
+
+output:
+  directory: "./results/rpi5/"
+  formats: [json, csv, markdown, html]
+  timestamp: true
+
+system_info:
+  collect_cpu: true
+  collect_ram: true
+  collect_disk: true
+  collect_gpu: false        # нет дискретного GPU/NVML на RPi5
+  collect_power: true       # опционально: usb power monitor / vcgencmd
+  collect_temperature: true # vcgencmd measure_temp / psutil sensors

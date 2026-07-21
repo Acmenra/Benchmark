@@ -1,0 +1,33 @@
+# Edge AI Benchmark Suite — зависимости.
+# TensorRT/cuda-python сюда не включены: это NVIDIA-специфичные пакеты (нужен
+# NVIDIA GPU + CUDA-сборка torch, не "+cpu"), которые ставятся отдельно:
+#   pip install tensorrt cuda-python --extra-index-url https://pypi.nvidia.com
+# — готовые wheel'ы, без компиляции и без системного CUDA Toolkit/nvcc.
+# См. INSTALL.md. Фреймворк корректно деградирует без них
+# (см. infrastructure/models/tensorrt_loader.py).
+
+# --- Основной пайплайн ---
+ultralytics>=8.4
+psutil>=7.0
+PyYAML>=6.0
+numpy>=1.26
+opencv-python>=4.9
+
+# --- Дополнительные форматы моделей ---
+onnxruntime>=1.17
+openvino>=2024.0
+
+# --- Системная информация / GPU-метрики ---
+py-cpuinfo>=9.0
+pynvml>=11.5
+
+# --- Модели с Hugging Face Hub ---
+huggingface_hub>=0.20
+
+# --- Отчётность/визуализация ---
+matplotlib>=3.8
+plotly>=5.20
+
+# --- Тестирование и статический анализ ---
+pytest>=7.4
+ruff>=0.4

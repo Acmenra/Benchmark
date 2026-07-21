@@ -1,0 +1,39 @@
+# Конфигурация для NVIDIA Jetson Orin.
+# Модели те же, что в default.yaml — различаются только форматы/вывод,
+# т.к. tensorrt технически требует NVIDIA-платформу.
+
+benchmark:
+  models:
+    - family: yolov8
+      sizes: [n]
+    - family: yolov11
+      sizes: [n]
+
+  formats: [pytorch, onnx, tensorrt]
+
+  input_size: 640
+  batch_size: 1
+  warmup_iterations: 10
+  main_iterations: null  # null -> весь test_images один раз; числом -> фикс. кол-во замеров
+  confidence_threshold: 0.25
+
+  # test_images: null -> 32 реальных фото с разметкой под `task`, завезённые
+  # в репозиторий — работает офлайн, FPS/latency и accuracy на одних кадрах.
+  # test_images: null
+
+  task: detect
+  measure_accuracy: true
+
+output:
+  directory: "./results/jetson_orin/"
+  formats: [json, csv, markdown, html]
+  timestamp: true
+
+system_info:
+  collect_cpu: true
+  collect_ram: true
+  collect_disk: true
+  collect_gpu: true
+  # На Jetson питание/температура читаются через /sys (ina3221x/thermal_zone)
+  collect_power: true
+  collect_temperature: true

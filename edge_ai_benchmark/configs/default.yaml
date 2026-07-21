@@ -1,0 +1,72 @@
+# Конфигурация для десктопа с NVIDIA GPU. Первый запуск дольше (TensorRT
+# собирает .engine из каждой модели ~1-2 мин), дальше файлы кэшируются.
+# Полный список поддерживаемых семейств/размеров (расширяйте по необходимости):
+#   families: yolov8, yolov10, yolov11, yolov12, yolov26
+#   sizes:    n, s, m, l, x
+
+benchmark:
+  models:
+    - family: yolov8
+      sizes: [n, l]
+    - family: yolov11
+      sizes: [n]
+    - family: yolov26
+      sizes: [n]
+
+  formats: [pytorch, onnx, openvino, tensorrt]
+
+  input_size: 640
+  batch_size: 1
+  warmup_iterations: 10
+  # main_iterations: null -> прогнать каждый кадр из test_images ровно один раз.
+  # Задайте числом (main_iterations: 100), чтобы зафиксировать одинаковое
+  # количество замеров независимо от размера датасета, циклически повторяя кадры.
+  main_iterations: null
+  # duration_minutes: 2   # если задано — гонять каждую комбинацию модель×формат
+  #                       # это время (циклически повторяя кадры), приоритет над main_iterations
+  confidence_threshold: 0.25
+
+  # test_images: null -> 32 реальных фото с разметкой, завезённые в репозиторий
+  # под текущий `task` (data/test_images/detect|segment/images + labels/),
+  # работает офлайн (Jetson/RPi могут быть без сети). FPS/latency и accuracy
+  # считаются на одной и той же директории.
+  # Своя директория должна называться `images` и иметь рядом `labels` с
+  # YOLO-txt разметкой (конвенция ultralytics) — иначе accuracy для неё не
+  # посчитать (FPS/latency посчитаются в любом случае, без ошибки).
+  # Может быть и видео (.mp4/.avi/.mov/.mkv/.webm) — тогда accuracy не
+  # считается, если явно не задан accuracy_dataset. Пример:
+  # test_images: "./edge_ai_benchmark/data/test_videos/sample_clip.mp4"
+  # test_images: null
+
+  task: segment          # detect | segment
+  measure_accuracy: true
+  # accuracy_dataset: null -> строится автоматически из test_images
+
+  # precision: fp32 (по умолчанию) | fp16 (быстрее на GPU/OpenVINO, без калибровки)
+  # | int8 (быстрее всего, требует калибровку на accuracy_dataset — заметно
+  # дольше первый экспорт для onnx/openvino/tensorrt; pytorch-бэкенд int8 не
+  # поддерживает и молча остаётся на fp32)
+  precision: fp32
+
+  # save_predictions: true -> сохранять каждый обработанный кадр с боксами/
+  # масками (как ultralytics Results.plot()) для любого формата и любого
+  # источника test_images (фото, видео — каждый кадр видео отдельной картинкой).
+  # predictions_dir: null -> results/predictions/<run_id>/<model>_<format>/
+  save_predictions: false
+  # predictions_dir: null
+
+output:
+  directory: "./results/"
+  formats: [json, csv, markdown, html]
+  timestamp: true
+
+system_info:
+  # cpu/ram/disk всегда дёшево доступны (platform/psutil) — включены по умолчанию
+  collect_cpu: true
+  collect_ram: true
+  collect_disk: true
+  # gpu/power/temperature могут требовать pynvml/специфичного железа
+  # и корректно деградируют до null/"unsupported", если недоступны
+  collect_gpu: true
+  collect_power: true
+  collect_temperature: true

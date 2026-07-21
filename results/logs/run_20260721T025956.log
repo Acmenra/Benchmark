@@ -1,0 +1,84 @@
+[2026-07-21 02:59:56,219] #INFO     edge_ai_benchmark.cli - Логи этого прогона сохраняются в results\logs\run_20260721T025956.log
+[2026-07-21 02:59:56,270] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8n [pytorch]...
+[2026-07-21 02:59:56,270] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Загрузка PyTorch-модели yolov8n из yolov8n-seg.pt
+[2026-07-21 03:00:00,947] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [pytorch]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:00:02,147] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [pytorch] 32/32 кадров | FPS~27.2 | latency avg=36.7мс min=11.2мс max=104.2мс | CPU=80% GPU=12% RAM=1369МБ Power=34.6Вт GPU_temp=74°C
+[2026-07-21 03:00:02,199] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Оценка точности PyTorch-модели на датасете C:\Users\makar\OneDrive\RabochiyStol\acmenra\benchmark\Benchmark\.model_cache\accuracy_segment_segment.yaml (task=segment)
+[2026-07-21 03:00:24,574] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8n [onnx]...
+[2026-07-21 03:00:26,658] #INFO     edge_ai_benchmark.infrastructure.models.onnx_loader - Загрузка ONNX-модели yolov8n из yolov8n-seg.onnx
+[2026-07-21 03:00:27,728] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [onnx]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:00:30,557] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [onnx] 32/32 кадров | FPS~11.3 | latency avg=88.3мс min=75.6мс max=129.3мс | CPU=1149% GPU=0% RAM=1760МБ Power=16.7Вт GPU_temp=71°C
+[2026-07-21 03:00:38,379] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8n [openvino]...
+[2026-07-21 03:00:40,338] #INFO     edge_ai_benchmark.infrastructure.models.openvino_loader - Загрузка OpenVINO-модели yolov8n из yolov8n-seg_openvino_model\yolov8n-seg.xml
+[2026-07-21 03:00:41,573] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [openvino]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:00:44,450] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [openvino] 32/32 кадров | FPS~11.1 | latency avg=89.9мс min=80.9мс max=111.3мс | CPU=658% GPU=0% RAM=1761МБ Power=16.4Вт GPU_temp=71°C
+[2026-07-21 03:00:51,249] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8n [tensorrt]...
+[2026-07-21 03:02:16,126] #INFO     edge_ai_benchmark.infrastructure.models.tensorrt_loader - Загрузка TensorRT engine yolov8n из yolov8n-seg.engine
+[2026-07-21 03:02:17,086] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [tensorrt]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:02:18,453] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8n [tensorrt] 32/32 кадров | FPS~23.5 | latency avg=42.6мс min=27.3мс max=82.3мс | CPU=247% GPU=23% RAM=2582МБ Power=29.2Вт GPU_temp=81°C
+[2026-07-21 03:02:51,256] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8l [pytorch]...
+[2026-07-21 03:02:51,256] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Загрузка PyTorch-модели yolov8l из yolov8l-seg.pt
+[2026-07-21 03:03:04,251] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [pytorch]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:03:05,833] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [pytorch] 32/32 кадров | FPS~20.2 | latency avg=49.4мс min=27.0мс max=108.4мс | CPU=86% GPU=53% RAM=2529МБ Power=63.1Вт GPU_temp=83°C
+[2026-07-21 03:03:05,908] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Оценка точности PyTorch-модели на датасете C:\Users\makar\OneDrive\RabochiyStol\acmenra\benchmark\Benchmark\.model_cache\accuracy_segment_segment.yaml (task=segment)
+[2026-07-21 03:03:34,453] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8l [onnx]...
+[2026-07-21 03:03:44,107] #INFO     edge_ai_benchmark.infrastructure.models.onnx_loader - Загрузка ONNX-модели yolov8l из yolov8l-seg.onnx
+[2026-07-21 03:03:57,236] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [onnx]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:04:07,456] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [onnx] 9/32 кадров | FPS~0.9 | latency avg=1135.5мс min=1090.7мс max=1211.2мс | CPU=1162% GPU=0% RAM=3831МБ Power=16.8Вт GPU_temp=74°C
+[2026-07-21 03:04:18,269] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [onnx] 19/32 кадров | FPS~0.9 | latency avg=1081.2мс min=1049.8мс max=1122.9мс | CPU=1178% GPU=0% RAM=3821МБ Power=16.7Вт GPU_temp=74°C
+[2026-07-21 03:04:28,673] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [onnx] 29/32 кадров | FPS~1.0 | latency avg=1040.5мс min=997.5мс max=1092.7мс | CPU=1183% GPU=0% RAM=3822МБ Power=16.7Вт GPU_temp=73°C
+[2026-07-21 03:04:31,672] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [onnx] 32/32 кадров | FPS~1.0 | latency avg=998.3мс min=975.9мс max=1010.8мс | CPU=1184% GPU=0% RAM=3823МБ Power=16.7Вт GPU_temp=73°C
+[2026-07-21 03:05:09,365] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8l [openvino]...
+[2026-07-21 03:05:16,684] #INFO     edge_ai_benchmark.infrastructure.models.openvino_loader - Загрузка OpenVINO-модели yolov8l из yolov8l-seg_openvino_model\yolov8l-seg.xml
+[2026-07-21 03:05:27,447] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [openvino]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:05:38,186] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [openvino] 10/32 кадров | FPS~0.9 | latency avg=1073.6мс min=1054.9мс max=1097.4мс | CPU=812% GPU=0% RAM=3383МБ Power=16.6Вт GPU_temp=72°C
+[2026-07-21 03:05:48,950] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [openvino] 20/32 кадров | FPS~0.9 | latency avg=1076.7мс min=1047.5мс max=1108.1мс | CPU=820% GPU=0% RAM=3354МБ Power=16.6Вт GPU_temp=72°C
+[2026-07-21 03:05:59,612] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [openvino] 30/32 кадров | FPS~0.9 | latency avg=1065.9мс min=980.5мс max=1106.6мс | CPU=825% GPU=0% RAM=3350МБ Power=16.5Вт GPU_temp=72°C
+[2026-07-21 03:06:01,589] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [openvino] 32/32 кадров | FPS~1.0 | latency avg=987.5мс min=985.0мс max=990.0мс | CPU=829% GPU=0% RAM=3350МБ Power=16.5Вт GPU_temp=72°C
+[2026-07-21 03:06:21,300] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov8l [tensorrt]...
+[2026-07-21 03:08:33,637] #INFO     edge_ai_benchmark.infrastructure.models.tensorrt_loader - Загрузка TensorRT engine yolov8l из yolov8l-seg.engine
+[2026-07-21 03:08:35,498] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [tensorrt]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:08:37,700] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov8l [tensorrt] 32/32 кадров | FPS~14.5 | latency avg=68.8мс min=46.0мс max=133.2мс | CPU=165% GPU=43% RAM=3496МБ Power=65.7Вт GPU_temp=86°C
+[2026-07-21 03:09:15,720] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov11n [pytorch]...
+[2026-07-21 03:09:15,720] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Загрузка PyTorch-модели yolov11n из yolo11n-seg.pt
+[2026-07-21 03:09:19,420] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [pytorch]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:09:20,686] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [pytorch] 32/32 кадров | FPS~25.2 | latency avg=39.6мс min=22.1мс max=70.0мс | CPU=77% GPU=16% RAM=2658МБ Power=28.4Вт GPU_temp=79°C
+[2026-07-21 03:09:20,869] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Оценка точности PyTorch-модели на датасете C:\Users\makar\OneDrive\RabochiyStol\acmenra\benchmark\Benchmark\.model_cache\accuracy_segment_segment.yaml (task=segment)
+[2026-07-21 03:09:51,533] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov11n [onnx]...
+[2026-07-21 03:09:55,558] #INFO     edge_ai_benchmark.infrastructure.models.onnx_loader - Загрузка ONNX-модели yolov11n из yolo11n-seg.onnx
+[2026-07-21 03:09:56,894] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [onnx]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:10:00,969] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [onnx] 32/32 кадров | FPS~7.9 | latency avg=127.2мс min=101.3мс max=173.4мс | CPU=1173% GPU=0% RAM=2905МБ Power=17.0Вт GPU_temp=75°C
+[2026-07-21 03:10:12,145] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov11n [openvino]...
+[2026-07-21 03:10:15,517] #INFO     edge_ai_benchmark.infrastructure.models.openvino_loader - Загрузка OpenVINO-модели yolov11n из yolo11n-seg_openvino_model\yolo11n-seg.xml
+[2026-07-21 03:10:17,185] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [openvino]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:10:21,095] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [openvino] 32/32 кадров | FPS~8.2 | latency avg=122.1мс min=102.2мс max=172.2мс | CPU=600% GPU=0% RAM=2665МБ Power=16.9Вт GPU_temp=74°C
+[2026-07-21 03:10:29,022] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov11n [tensorrt]...
+[2026-07-21 03:12:25,634] #INFO     edge_ai_benchmark.infrastructure.models.tensorrt_loader - Загрузка TensorRT engine yolov11n из yolo11n-seg.engine
+[2026-07-21 03:12:27,001] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [tensorrt]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:12:29,206] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov11n [tensorrt] 32/32 кадров | FPS~14.5 | latency avg=68.9мс min=40.8мс max=129.0мс | CPU=217% GPU=17% RAM=2674МБ Power=33.0Вт GPU_temp=82°C
+[2026-07-21 03:13:05,624] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov26n [pytorch]...
+[2026-07-21 03:13:05,624] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Загрузка PyTorch-модели yolov26n из yolo26n-seg.pt
+[2026-07-21 03:14:18,525] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [pytorch]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:14:19,333] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [pytorch] 32/32 кадров | FPS~39.5 | latency avg=25.3мс min=14.9мс max=43.5мс | CPU=77% GPU=31% RAM=2601МБ Power=22.2Вт GPU_temp=74°C
+[2026-07-21 03:14:19,567] #INFO     edge_ai_benchmark.infrastructure.models.pytorch_loader - Оценка точности PyTorch-модели на датасете C:\Users\makar\OneDrive\RabochiyStol\acmenra\benchmark\Benchmark\.model_cache\accuracy_segment_segment.yaml (task=segment)
+[2026-07-21 03:14:42,628] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov26n [onnx]...
+[2026-07-21 03:14:45,573] #INFO     edge_ai_benchmark.infrastructure.models.onnx_loader - Загрузка ONNX-модели yolov26n из yolo26n-seg.onnx
+[2026-07-21 03:14:46,949] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [onnx]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:14:52,568] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [onnx] 32/32 кадров | FPS~5.7 | latency avg=175.5мс min=145.0мс max=200.0мс | CPU=1288% GPU=0% RAM=2887МБ Power=16.5Вт GPU_temp=72°C
+[2026-07-21 03:15:00,284] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov26n [openvino]...
+[2026-07-21 03:15:03,940] #INFO     edge_ai_benchmark.infrastructure.models.openvino_loader - Загрузка OpenVINO-модели yolov26n из yolo26n-seg_openvino_model\yolo26n-seg.xml
+[2026-07-21 03:15:05,803] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [openvino]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:15:10,710] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [openvino] 32/32 кадров | FPS~6.5 | latency avg=153.3мс min=131.8мс max=180.8мс | CPU=633% GPU=0% RAM=2860МБ Power=16.5Вт GPU_temp=72°C
+[2026-07-21 03:15:18,096] #INFO     edge_ai_benchmark.application.benchmark_runner - Бенчмарк yolov26n [tensorrt]...
+[2026-07-21 03:17:09,618] #INFO     edge_ai_benchmark.infrastructure.models.tensorrt_loader - Загрузка TensorRT engine yolov26n из yolo26n-seg.engine
+[2026-07-21 03:17:12,500] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [tensorrt]: прогон всего датасета один раз, 32 кадров
+[2026-07-21 03:17:20,205] #INFO     edge_ai_benchmark.application.benchmark_runner - yolov26n [tensorrt] 32/32 кадров | FPS~4.2 | latency avg=240.7мс min=186.1мс max=326.8мс | CPU=416% GPU=18% RAM=2830МБ Power=20.1Вт GPU_temp=78°C
+[2026-07-21 03:17:57,166] #INFO     edge_ai_benchmark.infrastructure.reporters.json_reporter - JSON-отчёт записан: results\results_20260721T025956.json
+[2026-07-21 03:17:57,166] #INFO     edge_ai_benchmark.cli - Результаты (run_id=20260721T025956) записаны: results\results_20260721T025956.json
+[2026-07-21 03:17:57,170] #INFO     edge_ai_benchmark.infrastructure.reporters.csv_reporter - CSV-отчёт записан: results\results_20260721T025956.csv
+[2026-07-21 03:17:57,172] #INFO     edge_ai_benchmark.cli - Результаты (run_id=20260721T025956) записаны: results\results_20260721T025956.csv
+[2026-07-21 03:17:57,172] #INFO     edge_ai_benchmark.infrastructure.reporters.markdown_reporter - Markdown-отчёт записан: results\results_20260721T025956.md
+[2026-07-21 03:17:57,174] #INFO     edge_ai_benchmark.cli - Результаты (run_id=20260721T025956) записаны: results\results_20260721T025956.md
+[2026-07-21 03:17:57,349] #INFO     edge_ai_benchmark.infrastructure.reporters.html_reporter - HTML-дашборд записан: results\results_20260721T025956.html
+[2026-07-21 03:17:57,350] #INFO     edge_ai_benchmark.cli - Результаты (run_id=20260721T025956) записаны: results\results_20260721T025956.html
+[2026-07-21 03:17:57,350] #INFO     edge_ai_benchmark.cli - Удаляю скачанные/экспортированные веса моделей этого прогона...

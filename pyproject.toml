@@ -1,0 +1,66 @@
+[project]
+name = "edge-ai-benchmark"
+version = "0.1.0"
+description = "Edge AI Benchmark Suite — фреймворк для бенчмаркинга моделей детекции объектов на edge-устройствах"
+requires-python = ">=3.11"
+dependencies = [
+    "ultralytics>=8.4",
+    "psutil>=7.0",
+    "PyYAML>=6.0",
+    "numpy>=1.26",
+    "opencv-python>=4.9",
+]
+
+[project.optional-dependencies]
+onnx = ["onnxruntime>=1.17"]
+openvino = ["openvino>=2024.0"]
+# tensorrt/cuda-python ставятся с --extra-index-url https://pypi.nvidia.com
+# (готовые wheel'ы NVIDIA, без компиляции и без системного CUDA Toolkit/nvcc)
+# — см. INSTALL.md. Также требуют CUDA-сборку torch (не "+cpu").
+tensorrt = ["tensorrt", "cuda-python"]
+gpu = ["pynvml>=11.5"]
+cpu-info = ["py-cpuinfo>=9.0"]
+huggingface = ["huggingface_hub>=0.20"]
+viz = ["matplotlib>=3.8"]
+html = ["plotly>=5.20"]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+all = [
+    "onnxruntime>=1.17",
+    "openvino>=2024.0",
+    "pynvml>=11.5",
+    "py-cpuinfo>=9.0",
+    "huggingface_hub>=0.20",
+    "matplotlib>=3.8",
+    "plotly>=5.20",
+]
+
+[project.scripts]
+edge-ai-benchmark = "edge_ai_benchmark.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["edge_ai_benchmark*"]
+
+[tool.setuptools.package-data]
+# Без этого при обычном "pip install ." (не editable, не из исходного
+# дерева) конфиги и bundled test_images/test_videos (не .py-файлы) не
+# попадают в устанавливаемый пакет — а от них зависит дефолтный офлайн-режим
+# (`infrastructure.dataset.default_test_images_dir`) и `configs/default.yaml`.
+edge_ai_benchmark = [
+    "configs/*.yaml",
+    "data/test_images/**/*",
+    "data/test_videos/*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["edge_ai_benchmark/tests"]

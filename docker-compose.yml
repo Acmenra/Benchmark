@@ -1,0 +1,15 @@
+ services:
+  benchmark:
+    build: .
+    volumes:
+      - ./edge_ai_benchmark/configs:/app/edge_ai_benchmark/configs:ro
+      - ./results:/app/results
+    command: ["run", "--config", "edge_ai_benchmark/configs/default.yaml"]
+    # Для NVIDIA GPU/TensorRT раскомментируйте (требует nvidia-container-runtime):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
