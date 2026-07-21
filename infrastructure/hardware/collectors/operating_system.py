@@ -1,17 +1,12 @@
 # infrastructure/hardware/collectors/operating_system.py
 
+import platform
 import logging
-
-from infrastructure.hardware.collectors.base import BaseCollector
 
 logger = logging.getLogger(__name__)
 
-import platform
-
 from core.entities.hardware import OSInfo
 
-class OSCollector(BaseCollector): # TODO this
-    ...
 
 def collect_os() -> OSInfo:
     """
