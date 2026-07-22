@@ -43,6 +43,7 @@ from infrastructure.model_quantization.openvino import (
 )
 from infrastructure.model_quantization.yolo_export import (
     ModelExportError,
+    ensure_yolo_pt_model,
     export_yolo_model,
 )
 
@@ -308,9 +309,16 @@ class BenchmarkRunner:
         if not self._is_quantization_supported(format_, quantization):
             return None
 
+        pt_path = Path(f"{family}{size}.pt")
         if format_ == "pytorch":
+            try:
+                pt_path = ensure_yolo_pt_model(pt_path)
+            except ModelExportError as error:
+                logger.warning("Не удалось подготовить исходную .pt модель: %s", error)
+                return None
+
             return ResolvedModelArtifact(
-                path=Path(f"{family}{size}.pt"),
+                path=pt_path,
                 quantization=quantization,
             )
 
@@ -330,7 +338,12 @@ class BenchmarkRunner:
             )
             return ResolvedModelArtifact(path=cached, quantization=quantization)
 
-        pt_path = Path(f"{family}{size}.pt")
+        try:
+            pt_path = ensure_yolo_pt_model(pt_path)
+        except ModelExportError as error:
+            logger.warning("Не удалось подготовить исходную .pt модель: %s", error)
+            return None
+
         if (
             format_ == "openvino"
             and quantization == QuantizationLevel.FP16.value

@@ -7,6 +7,7 @@ from infrastructure.model_quantization.calibration import (
     collect_calibration_images,
     preprocess_yolo_image,
 )
+from infrastructure.model_quantization.yolo_export import ensure_yolo_pt_model
 
 
 def test_collect_calibration_images_from_ultralytics_yaml(tmp_path: Path) -> None:
@@ -38,3 +39,10 @@ def test_preprocess_yolo_image_returns_nchw_float32(tmp_path: Path) -> None:
 
     assert result.shape == (1, 3, 32, 32)
     assert result.dtype == np.float32
+
+
+def test_ensure_yolo_pt_model_returns_existing_file(tmp_path: Path) -> None:
+    model_path = tmp_path / "custom.pt"
+    model_path.write_bytes(b"stub")
+
+    assert ensure_yolo_pt_model(model_path) == model_path
