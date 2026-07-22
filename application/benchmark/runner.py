@@ -4,7 +4,6 @@ import gc
 import glob
 import logging
 import os
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator
@@ -33,6 +32,19 @@ from core.enums.model import (
     ultralytics_export_format,
 )
 from infrastructure.metrics.quality import YOLOQualityMetricsCollector
+from infrastructure.model_quantization.onnx import (
+    ONNXINT8Quantizer,
+    ONNXQuantizationError,
+)
+from infrastructure.model_quantization.openvino import (
+    OpenVINOFP16Quantizer,
+    OpenVINOINT8Quantizer,
+    OpenVINOQuantizationError,
+)
+from infrastructure.model_quantization.yolo_export import (
+    ModelExportError,
+    export_yolo_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -319,14 +331,58 @@ class BenchmarkRunner:
             return ResolvedModelArtifact(path=cached, quantization=quantization)
 
         pt_path = Path(f"{family}{size}.pt")
+        if (
+            format_ == "openvino"
+            and quantization == QuantizationLevel.FP16.value
+        ):
+            fp16_artifact = self._prepare_openvino_fp16_artifact(
+                pt_path=pt_path,
+                family=family,
+                size=size,
+                extension=extension,
+            )
+            if fp16_artifact is None:
+                return None
+
+            return ResolvedModelArtifact(
+                path=fp16_artifact,
+                quantization=quantization,
+            )
+
+        if quantization == QuantizationLevel.INT8.value:
+            int8_artifact = self._prepare_int8_artifact(
+                pt_path=pt_path,
+                family=family,
+                size=size,
+                format_=format_,
+                extension=extension,
+            )
+            if int8_artifact is None:
+                return None
+
+            return ResolvedModelArtifact(
+                path=int8_artifact,
+                quantization=quantization,
+            )
+
         export_kwargs = self._build_export_kwargs(export_format, quantization)
         if export_kwargs is None:
             return None
 
         logger.info("Экспорт %s%s -> %s/%s", family, size, format_, quantization)
         try:
-            exported = YOLO(str(pt_path)).export(**export_kwargs)
-        except Exception:
+            exported_path = export_yolo_model(
+                pt_path=pt_path,
+                export_format=export_format,
+                target_path=self._build_cached_artifact_path(
+                    family,
+                    size,
+                    extension,
+                    quantization,
+                ),
+                export_kwargs=export_kwargs,
+            )
+        except (ModelExportError, Exception):
             logger.exception(
                 "Не удалось экспортировать %s в формат %s/%s",
                 pt_path,
@@ -335,25 +391,118 @@ class BenchmarkRunner:
             )
             return None
 
-        exported_path = Path(exported)
-        if not exported_path.exists():
-            logger.error("Экспорт %s завершился без файла: %s", format_, exported_path)
-            return None
+        logger.info("Экспорт завершён: %s", exported_path)
+        return ResolvedModelArtifact(path=exported_path, quantization=quantization)
 
-        target_path = self._build_cached_artifact_path(
+    def _prepare_openvino_fp16_artifact(
+        self,
+        pt_path: Path,
+        family: str,
+        size: str,
+        extension: str,
+    ) -> Path | None:
+        """Подготовить OpenVINO FP16-артефакт через отдельный quantizer."""
+        fp32_path = self._build_cached_artifact_path(
             family,
             size,
             extension,
-            quantization,
+            QuantizationLevel.FP32.value,
         )
-        if target_path != exported_path:
-            if target_path.exists():
-                return target_path
-            shutil.move(str(exported_path), str(target_path))
-            exported_path = target_path
+        fp16_path = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            QuantizationLevel.FP16.value,
+        )
 
-        logger.info("Экспорт завершён: %s", exported_path)
-        return ResolvedModelArtifact(path=exported_path, quantization=quantization)
+        try:
+            return OpenVINOFP16Quantizer().quantize(
+                pt_path=pt_path,
+                fp32_openvino_path=fp32_path,
+                fp16_openvino_path=fp16_path,
+            )
+        except (OpenVINOQuantizationError, ModelExportError) as error:
+            logger.warning(
+                "Не удалось подготовить FP16 OpenVINO артефакт для %s%s: %s",
+                family,
+                size,
+                error,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "Неожиданная ошибка подготовки FP16 OpenVINO артефакта для %s%s",
+                family,
+                size,
+            )
+            return None
+
+    def _prepare_int8_artifact(
+        self,
+        pt_path: Path,
+        family: str,
+        size: str,
+        format_: str,
+        extension: str,
+    ) -> Path | None:
+        """Подготовить INT8-артефакт через специализированный quantizer."""
+        dataset_config_path = self._find_quality_dataset_config()
+        if dataset_config_path is None:
+            logger.warning("INT8 требует data.yaml для калибровки, датасет не найден")
+            return None
+
+        input_size = self.benchmark_config.input_size or 640
+        fp32_path = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            QuantizationLevel.FP32.value,
+        )
+        int8_path = self._build_cached_artifact_path(
+            family,
+            size,
+            extension,
+            QuantizationLevel.INT8.value,
+        )
+
+        try:
+            if format_ == "onnx":
+                return ONNXINT8Quantizer().quantize(
+                    pt_path=pt_path,
+                    fp32_onnx_path=fp32_path,
+                    int8_onnx_path=int8_path,
+                    dataset_config_path=dataset_config_path,
+                    input_size=input_size,
+                )
+
+            if format_ == "openvino":
+                return OpenVINOINT8Quantizer().quantize(
+                    pt_path=pt_path,
+                    fp32_openvino_path=fp32_path,
+                    int8_openvino_path=int8_path,
+                    dataset_config_path=dataset_config_path,
+                    input_size=input_size,
+                )
+        except (ONNXQuantizationError, OpenVINOQuantizationError, ModelExportError) as error:
+            logger.warning(
+                "Не удалось подготовить INT8 артефакт для %s%s/%s: %s",
+                family,
+                size,
+                format_,
+                error,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "Неожиданная ошибка подготовки INT8 артефакта для %s%s/%s",
+                family,
+                size,
+                format_,
+            )
+            return None
+
+        logger.warning("INT8 quantizer для формата %s не реализован", format_)
+        return None
 
     def _is_quantization_supported(self, format_: str, quantization: str) -> bool:
         """Проверить, есть ли смысл пробовать квантование для формата."""
@@ -375,8 +524,8 @@ class BenchmarkRunner:
             return False
 
         supported_formats_by_quantization = {
-            QuantizationLevel.FP16.value: {"onnx", "tensorrt"},
-            QuantizationLevel.INT8.value: {"onnx", "tensorrt"},
+            QuantizationLevel.FP16.value: {"onnx", "openvino", "tensorrt"},
+            QuantizationLevel.INT8.value: {"onnx", "openvino", "tensorrt"},
         }
         supported_formats = supported_formats_by_quantization.get(quantization, set())
         if format_ not in supported_formats:
