@@ -195,7 +195,7 @@ class ModelBenchmarkResult:
     Результат бенчмарка для ОДНОЙ модели в рамках кейса.
     Используется для детализированных отчётов по моделям.
     """
-    model: Dict[str, Any]  # {family, size, format}
+    model: Dict[str, Any]  # {family, size, task_type, format, quantization}
     status: str = "success"
     error: str | None = None
     performance: LatencyStats | None = None

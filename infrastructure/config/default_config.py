@@ -10,7 +10,14 @@ from core.entities.config import (
     OutputConfig,
     SystemInfoConfig,
 )
-from core.enums.model import DeviceType, ModelFamily, ModelFormat, ModelSize, QuantizationLevel
+from core.enums.model import (
+    DeviceType,
+    ModelFamily,
+    ModelFormat,
+    ModelSize,
+    QuantizationLevel,
+    TaskType,
+)
 
 
 def build_default_config() -> Config:
@@ -29,6 +36,7 @@ def build_default_config() -> Config:
             runs=(BenchmarkRun(models=models),),
             formats=tuple(model_format.value for model_format in ModelFormat),
             quantization=(QuantizationLevel.FP32.value,),
+            task_type=TaskType.DETECT,
             device_type=DeviceType.AUTO,
             input_size=640,
             batch_size=1,

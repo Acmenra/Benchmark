@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from core.enums.model import DeviceType
+from core.enums.model import DeviceType, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,7 @@ class BenchmarkConfig(_ConfigBase):
     runs: tuple[BenchmarkRun, ...]
     formats: tuple[str, ...] = ()
     quantization: tuple[str, ...] = ()
+    task_type: TaskType | None = None
     device_type: DeviceType | None = None
     input_size: int | None = None
     batch_size: int | None = None

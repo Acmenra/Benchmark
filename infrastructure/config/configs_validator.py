@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from core.enums.model import DeviceType, QuantizationLevel
+from core.enums.model import DeviceType, QuantizationLevel, TaskType
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -84,7 +84,33 @@ class _BenchmarkConfigInputSchema(BaseModel):
     main_iterations: int | None = None
     confidence_threshold: float | None = None
     test_images: str | None = None
+    task_type: str | None = None
     device_type: str | None = None
+
+    @field_validator("task_type")
+    @classmethod
+    def validate_task_type(cls, value: str | TaskType | None) -> str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, TaskType):
+            return value.value.lower()
+
+        if not isinstance(value, str):
+            raise ValueError("task_type must be a non-empty string")
+
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("task_type must be a non-empty string")
+
+        try:
+            TaskType(normalized)
+        except ValueError as exc:
+            valid_values = sorted(item.value for item in TaskType)
+            raise ValueError(
+                f"task_type must contain valid values {valid_values}, got {value}"
+            ) from exc
+        return normalized
 
     @field_validator("device_type")
     @classmethod

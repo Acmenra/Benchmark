@@ -168,6 +168,7 @@ class BenchmarkRunner:
                         model={
                             "family": family,
                             "size": size,
+                            "task_type": self._get_task_type().value,
                             "format": format_,
                             "quantization": artifact.quantization,
                         },
@@ -195,6 +196,7 @@ class BenchmarkRunner:
             model={
                 "family": family,
                 "size": size,
+                "task_type": self._get_task_type().value,
                 "format": format_,
                 "quantization": actual_quantization,
             },
@@ -240,6 +242,10 @@ class BenchmarkRunner:
 
     def _get_quantization_levels(self) -> tuple[str, ...]:
         return self.benchmark_config.quantization or (QuantizationLevel.FP32.value,)
+
+    def _get_task_type(self) -> TaskType:
+        """Вернуть тип задачи YOLO из конфига."""
+        return self.benchmark_config.task_type or TaskType.DETECT
 
     def _run_model_on_images(
         self,
@@ -309,7 +315,8 @@ class BenchmarkRunner:
         if not self._is_quantization_supported(format_, quantization):
             return None
 
-        pt_path = Path(f"{family}{size}.pt")
+        model_stem = self._build_model_stem(family, size)
+        pt_path = Path(f"{model_stem}.pt")
         if format_ == "pytorch":
             try:
                 pt_path = ensure_yolo_pt_model(pt_path)
@@ -382,7 +389,7 @@ class BenchmarkRunner:
         if export_kwargs is None:
             return None
 
-        logger.info("Экспорт %s%s -> %s/%s", family, size, format_, quantization)
+        logger.info("Экспорт %s -> %s/%s", model_stem, format_, quantization)
         try:
             exported_path = export_yolo_model(
                 pt_path=pt_path,
@@ -570,10 +577,31 @@ class BenchmarkRunner:
         extension: str,
         quantization: str,
     ) -> Path:
-        """Собрать имя export-артефакта с учётом уровня квантования."""
+        """Собрать имя export-артефакта с учётом типа задачи и квантования."""
+        model_stem = self._build_model_stem(family, size)
         if quantization == QuantizationLevel.FP32.value:
-            return Path(f"{family}{size}{extension}")
-        return Path(f"{family}{size}_{quantization}{extension}")
+            return Path(f"{model_stem}{extension}")
+        return Path(f"{model_stem}_{quantization}{extension}")
+
+    def _build_model_stem(self, family: str, size: str) -> str:
+        """Собрать базовое имя модели с суффиксом task-specific моделей."""
+        return f"{family}{size}{self._get_task_model_suffix()}"
+
+    def _get_task_model_suffix(self) -> str:
+        """
+        Вернуть суффикс стандартных Ultralytics-моделей для выбранной задачи.
+
+        Для detection суффикса нет: yolov8n.pt.
+        Для segment/pose/classify/obb модели обычно называются yolov8n-seg.pt
+        и так далее, поэтому без суффикса подтянется не та архитектура.
+        """
+        suffixes_by_task = {
+            TaskType.SEGMENT.value: "-seg",
+            TaskType.POSE.value: "-pose",
+            TaskType.CLASSIFY.value: "-cls",
+            TaskType.OBB.value: "-obb",
+        }
+        return suffixes_by_task.get(self._get_task_type().value, "")
 
     def _build_export_kwargs(
         self,
@@ -618,11 +646,12 @@ class BenchmarkRunner:
         quantization: str = QuantizationLevel.FP32.value,
     ) -> YOLOBackend:
         device = self._normalize_device(self.benchmark_config.device_type)
+        task_type = self._get_task_type()
         return YOLOBackend(
-            model=YOLO(str(model_path), task=TaskType.DETECT.value),
+            model=YOLO(str(model_path), task=task_type.value),
             device=device,
             category=Coco,
-            task_type=TaskType.DETECT,
+            task_type=task_type,
             threshold=self.benchmark_config.confidence_threshold or 0.25,
             iou=0.7,
             imgsz=self.benchmark_config.input_size or 640,
@@ -752,6 +781,7 @@ class BenchmarkRunner:
             collector = YOLOQualityMetricsCollector(
                 yolo_backend=model,
                 dataset_path=dataset_config_path,
+                task_type=self._get_task_type(),
                 imgsz=self.benchmark_config.input_size or 640,
                 conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
             )
