@@ -503,6 +503,20 @@ class BenchmarkRunner:
                     dataset_config_path=dataset_config_path,
                     input_size=input_size,
                 )
+
+            if format_ == "tensorrt":
+                export_kwargs = self._build_export_kwargs("engine", QuantizationLevel.INT8.value)
+                if export_kwargs is None:
+                    raise ModelExportError("Не удалось собрать kwargs для TensorRT INT8")
+
+                exported_path = export_yolo_model(
+                    pt_path=pt_path,
+                    export_format="engine",
+                    target_path=int8_path,
+                    export_kwargs=export_kwargs,
+                )
+                if exported_path.exists():
+                    return exported_path
         except (ONNXQuantizationError, OpenVINOQuantizationError, ModelExportError) as error:
             logger.warning(
                 "Не удалось подготовить INT8 артефакт для %s%s/%s: %s",
