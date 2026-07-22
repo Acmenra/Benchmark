@@ -548,8 +548,7 @@ class BenchmarkRunner:
         )
 
         if format_ == "pytorch":
-            # .pt остается исходным PyTorch-файлом; квантованный артефакт
-            # появляется только после export в другой backend/format.
+            # .pt остается исходным PyTorch-файлом
             logger.warning(unsupported_message, quantization, format_)
             return False
 
@@ -702,8 +701,6 @@ class BenchmarkRunner:
         self._call_cleanup_method(model)
         self._call_cleanup_method(raw_model)
 
-        # Ultralytics хранит predictor внутри YOLO-модели и может держать
-        # ссылки на backend/session между predict-вызовами.
         predictor = getattr(raw_model, "predictor", None)
         if predictor is not None:
             self._clear_predictor_resources(predictor)
