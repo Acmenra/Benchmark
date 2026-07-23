@@ -14,7 +14,7 @@ from core.entities.config import (
     OutputConfig,
     SystemInfoConfig,
 )
-from core.enums.model import DeviceType, QuantizationLevel
+from core.enums.model import DeviceType, QuantizationLevel, TaskType
 from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
 
 logger = logging.getLogger(__name__)
@@ -31,11 +31,18 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
         )
         runs.append(BenchmarkRun(models=models))
 
-    payload = benchmark_data.model_dump(exclude={"runs", "formats", "quantization"})
+    payload = benchmark_data.model_dump(
+        exclude={"runs", "formats", "quantization", "device_type", "task_type"}
+    )
     payload["runs"] = tuple(runs)
     payload["formats"] = tuple(benchmark_data.formats)
     payload["quantization"] = tuple(
         benchmark_data.quantization or [QuantizationLevel.FP32.value]
+    )
+    payload["task_type"] = (
+        TaskType(benchmark_data.task_type)
+        if benchmark_data.task_type is not None
+        else TaskType.DETECT
     )
     payload["device_type"] = (
         DeviceType(benchmark_data.device_type)

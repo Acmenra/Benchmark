@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from core.entities.metrics import QualityMetrics
+from core.enums.model import TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
         self,
         yolo_backend: Any,
         dataset_path: Path | str,
+        task_type: TaskType | str = TaskType.DETECT,
         imgsz: int = 640,
         conf_threshold: float = 0.25,
     ) -> None:
@@ -43,6 +45,7 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
         self.yolo_backend = yolo_backend
         self.yolo_model = yolo_backend.model if hasattr(yolo_backend, "model") else yolo_backend
         self.dataset_path = self._resolve_dataset_config(Path(dataset_path))
+        self.task_type = self._normalize_task_type(task_type)
         self.imgsz = imgsz
         self.conf_threshold = conf_threshold
         self._cached_metrics: QualityMetrics | None = None
@@ -83,13 +86,22 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
                 data=str(self.dataset_path),
                 imgsz=self.imgsz,
                 conf=self.conf_threshold,
-                task="detect",
+                task=self.task_type.value,
                 verbose=False,
             )
 
-            # Извлекаем метрики из результатов
-            recall = self._safe_float(results.box.mr, "mean recall")
-            precision = self._safe_float(results.box.mp, "mean precision")
+            metrics_source = self._select_metrics_source(results)
+
+            # Для разных task Ultralytics кладет метрики в разные секции:
+            # detect -> box, segment -> seg, pose -> pose, obb -> obb.
+            recall = self._safe_float(
+                getattr(metrics_source, "mr", None),
+                "mean recall",
+            )
+            precision = self._safe_float(
+                getattr(metrics_source, "mp", None),
+                "mean precision",
+            )
             
             # Вычисляем F1-score из precision и recall
             if recall is not None and precision is not None:
@@ -100,8 +112,8 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
             else:
                 f1_score = None
             
-            map50 = self._safe_float(results.box.map50, "map50")
-            map50_95 = self._safe_float(results.box.map, "map50-95")
+            map50 = self._safe_float(getattr(metrics_source, "map50", None), "map50")
+            map50_95 = self._safe_float(getattr(metrics_source, "map", None), "map50-95")
 
             logger.info(
                 "Метрики качества: recall=%.4f, precision=%.4f, "
@@ -134,6 +146,32 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
                 return dataset_config
 
         return dataset_path
+
+    @staticmethod
+    def _normalize_task_type(task_type: TaskType | str) -> TaskType:
+        """Нормализовать тип задачи из конфига или прямого вызова."""
+        if isinstance(task_type, TaskType):
+            return task_type
+        return TaskType(str(task_type).strip().lower())
+
+    def _select_metrics_source(self, results: Any) -> Any:
+        """Выбрать секцию metrics, соответствующую текущему типу задачи."""
+        candidates_by_task = {
+            TaskType.SEGMENT.value: "seg",
+            TaskType.POSE.value: "pose",
+            TaskType.OBB.value: "obb",
+        }
+        candidate_name = candidates_by_task.get(self.task_type.value, "box")
+        metrics_source = getattr(results, candidate_name, None)
+        if metrics_source is not None:
+            return metrics_source
+
+        logger.warning(
+            "В результатах validation нет секции %s для task_type=%s",
+            candidate_name,
+            self.task_type.value,
+        )
+        return getattr(results, "box", results)
 
     @staticmethod
     def _safe_float(value: Any, field_name: str) -> float | None:

@@ -14,7 +14,6 @@ def collect_os() -> OSInfo:
     Набор полей зависит от текущего OSInfo.
     """
     return OSInfo(
-        # После согласования entities.py можно добавить в OSInfo python_version
         system=_empty_to_none(platform.system()),
         release=_empty_to_none(platform.release()),
         kernel=_empty_to_none(platform.version()),
