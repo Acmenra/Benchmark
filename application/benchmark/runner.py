@@ -136,8 +136,8 @@ class BenchmarkRunner:
                             format_,
                             quantization,
                         )
-                        raw_result = collector.get()
                         run_failed = True
+                        raw_result = self._safe_get_collector_result(collector)
                         yield self._build_status_result(
                             family=family,
                             size=size,
@@ -149,20 +149,25 @@ class BenchmarkRunner:
                             cpu=raw_result.cpu,
                             gpu=raw_result.gpu,
                         )
-                    finally:
-                        collector.stop_run()
-                        if run_failed:
-                            self._cleanup_model_resources(model)
-
-                    if run_failed:
+                        self._finalize_run(collector, model)
                         continue
 
-                    raw_result = collector.get()
+                    raw_result = self._safe_get_collector_result(collector)
 
                     try:
                         quality_metrics = self._collect_quality_metrics(model, family, size)
+                    except Exception as error:
+                        logger.warning(
+                            "Не удалось собрать метрики качества для %s%s/%s/%s: %s",
+                            family,
+                            size,
+                            format_,
+                            quantization,
+                            error,
+                        )
+                        quality_metrics = None
                     finally:
-                        self._cleanup_model_resources(model)
+                        self._finalize_run(collector, model)
 
                     yield ModelBenchmarkResult(
                         model={
@@ -207,6 +212,41 @@ class BenchmarkRunner:
             gpu=gpu,
             quality=None,
         )
+
+    def _safe_get_collector_result(self, collector: MetricsCollector) -> object:
+        """Безопасное получение метрик из collector, чтобы не ломать весь прогон при ошибке."""
+        try:
+            return collector.get()
+        except Exception as error:
+            logger.warning("Не удалось получить метрики benchmark-прогона: %s", error)
+            return type(
+                "FallbackBenchmarkResult",
+                (),
+                {
+                    "performance": None,
+                    "cpu": None,
+                    "gpu": None,
+                },
+            )()
+
+    def _finalize_run(
+        self,
+        collector: MetricsCollector,
+        model: YOLOBackend | None,
+    ) -> None:
+        """Останавливает collector и освобождает ресурсы, не ломая весь прогон."""
+        try:
+            collector.stop_run()
+        except Exception as error:
+            logger.exception("Не удалось остановить collector benchmark-прогона: %s", error)
+
+        if model is None:
+            return
+
+        try:
+            self._cleanup_model_resources(model)
+        except Exception as error:
+            logger.exception("Не удалось освободить ресурсы модели: %s", error)
 
     def _get_dataset_path(self) -> Path:
         if self.benchmark_config.test_images is None:
