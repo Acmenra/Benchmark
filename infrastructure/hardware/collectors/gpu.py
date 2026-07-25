@@ -9,8 +9,8 @@ from pathlib import Path
 import platform as platform_module
 
 from core.domain.hardware import GPUInfo
-from core.domain.config import SystemInfoConfig
 from core.domain.hardware.enums import PlatformType
+from core.domain.config.system import SystemInfoConfig
 from core.domain.metrics import MetricStatistics, GPUMetrics, DataPoint
 from infrastructure.hardware.collectors.base import BaseCollector
 

@@ -3,16 +3,16 @@
 import logging
 import threading
 
-from core.domain.config import SystemInfoConfig
+from core.domain.config.system import SystemInfoConfig
 from core.domain.metrics import MetricStatistics, GPUMetrics
-from application.benchmark.metrics.base import MetricCollector
+from application.benchmark.metrics.base import BaseMetricsCollector
 from infrastructure.hardware.collectors.gpu import GPUCollector
 
 
 logger = logging.getLogger(__name__)
 
 
-class GPUMetricsCollector(MetricCollector):
+class GPUMetricsCollector(BaseMetricsCollector):
     """Фоновый сборщик runtime-метрик GPU для одного benchmark-прогона."""
 
     def __init__(

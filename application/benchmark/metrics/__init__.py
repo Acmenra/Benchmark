@@ -2,12 +2,15 @@
 
 import logging
 
+from application.benchmark.metrics.base import BaseMetricsCollector
+from application.benchmark.metrics.collector import MetricsCollector
+
 
 logger = logging.getLogger(__name__)
 
 
 __all__ = [
-    'MetricCollector',
+    'BaseMetricsCollector',
     'MetricsCollector'
 ]
 

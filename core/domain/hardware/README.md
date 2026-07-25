@@ -6,17 +6,20 @@ The **hardware** module represents the core domain layer for system hardware cha
 
 This module acts as the single source of truth for hardware metadata, completely decoupled from the actual data collection logic (which resides in the `infrastructure` layer). It ensures that downstream components (reporters, analyzers, runners) interact with standardized, predictable data structures regardless of the underlying OS or hardware vendor.
 
-This module contains 4 core hardware entities:
+This module contains 6 core hardware entities and 1 platform enumeration:
 - **CPUInfo**: Validated representation of central processing unit specifications (architecture, cores, frequency).
 - **GPUInfo**: Validated representation of graphics processing unit specifications, including VRAM and CUDA capabilities.
+- **MPSInfo**: Extensible placeholder for Apple Metal Performance Shader (MPS) accelerator specifications.
 - **NPUInfo**: Extensible placeholder for Neural Processing Unit specifications (e.g., Rockchip RK3588, Hailo, Intel NPU).
 - **TPUInfo**: Extensible placeholder for Tensor Processing Unit specifications (e.g., Google Coral).
+- **RAMInfo**: Extensible placeholder for System Memory (RAM) specifications.
+- **PlatformType**: Enumeration defining the supported Edge AI hardware platforms (Desktop, Jetson, Raspberry Pi, etc.).
 
 All components are implemented as **frozen dataclasses with slots** (`@dataclass(slots=True, frozen=True)`), ensuring:
 -  Strict type safety and IDE autocomplete support.
 -  Memory efficiency (critical for long-running benchmark processes).
 -  Immutability (prevents accidental state mutation during benchmark execution).
--  Seamless serialization to JSON/CSV via standard `dataclasses.asdict()` or custom mappers.
+-  Seamless serialization to JSON/CSV via standard `dataclasses.asdict()` or custom infrastructure mappers.
 
 ---
 
@@ -26,17 +29,20 @@ All components are implemented as **frozen dataclasses with slots** (`@dataclass
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Module exports and public API definition. [Learn more.](#__init__py)  
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `cpu_info.py` - CPU metadata representation. [Learn more.](#cpu_infopy)  
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `gpu_info.py` - GPU metadata representation with CUDA awareness. [Learn more.](#gpu_infopy)  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `mps_info.py` - Apple MPS accelerator representation (extensible placeholder). [Learn more.](#mps_infopy)  
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `npu_info.py` - NPU metadata representation (extensible placeholder). [Learn more.](#npu_infopy)  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `tpu_info.py` - TPU metadata representation (extensible placeholder). [Learn more.](#tpu_infopy)
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `tpu_info.py` - TPU metadata representation (extensible placeholder). [Learn more.](#tpu_infopy)  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `ram_info.py` - System RAM metadata representation (extensible placeholder). [Learn more.](#ram_infopy)  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `enums.py` - Platform type enumeration. [Learn more.](#enumspy)
 
 ---
 
 ### [hardware](hardware) / [__init__.py](__init__.py)
 > <details><summary><code>Module Exports</code> - Public API definition for the hardware domain.</summary><p>
 >
-> Exposes the core dataclasses to the rest of the application, ensuring clean import paths (e.g., `from core.domain.hardware import CPUInfo`).
+> Exposes the core dataclasses and enumerations to the rest of the application, ensuring clean import paths (e.g., `from core.domain.hardware import CPUInfo, PlatformType`).
 >
-> 🔴 `__all__`: [List[str]](#__init__py) - Explicitly defines the public API: `['CPUInfo', 'GPUInfo', 'NPUInfo', 'TPUInfo']`.
+> 🔴 `__all__`: [List[str]](#__init__py) - Explicitly defines the public API: `['CPUInfo', 'GPUInfo', 'MPSInfo', 'NPUInfo', 'TPUInfo', 'RAMInfo', 'PlatformType']`.
 >
 > </p></details>
 
@@ -68,6 +74,17 @@ All components are implemented as **frozen dataclasses with slots** (`@dataclass
 >
 > </p></details>
 
+### [hardware](hardware) / [mps_info.py](mps_info.py)
+> <details><summary><code>class MPSInfo</code> - Extensible placeholder for Apple Metal Performance Shader specifications.</summary><p>
+>
+> A reserved, immutable dataclass structure designed for future expansion. Intended to hold metadata for Apple Silicon (M1/M2/M3/M4) MPS accelerators.
+>
+> 🔴 `__init__()`: [None](#mps_infopy) - Currently a stub (`...`). Awaiting definition of fields like `unified_memory_gb`, `metal_version`, and `gpu_core_count`.  
+>
+> *Note: This class is exported to ensure API stability. Infrastructure collectors should return `None` for MPS data until this schema is fully defined.*
+>
+> </p></details>
+
 ### [hardware](hardware) / [npu_info.py](npu_info.py)
 > <details><summary><code>class NPUInfo</code> - Extensible placeholder for Neural Processing Unit specifications.</summary><p>
 >
@@ -87,22 +104,37 @@ All components are implemented as **frozen dataclasses with slots** (`@dataclass
 > 🔴 `__init__()`: [None](#tpu_infopy) - Currently a stub (`...`). Awaiting definition of fields like `device_path`, `driver_version`, and `max_power_watts`.  
 >
 > *Note: This class is exported to ensure API stability. Infrastructure collectors should return `None` for TPU data until this schema is fully defined.*
-
+>
 > </p></details>
 
-### [hardware](hardware) / [mps_info.py](mps_info.py)
-> <details><summary><code>class TPUInfo</code> - Extensible placeholder for Tensor Processing Unit specifications.</summary><p>
+### [hardware](hardware) / [ram_info.py](ram_info.py)
+> <details><summary><code>class RAMInfo</code> - Extensible placeholder for System Memory (RAM) specifications.</summary><p>
 >
-> A reserved, immutable dataclass structure designed for future expansion. Intended to hold metadata for Google Coral Edge TPU or similar accelerators.
+> A reserved, immutable dataclass structure designed for future expansion. Intended to hold metadata for system RAM, which is especially critical for Edge devices with Unified Memory (like Jetson or Raspberry Pi).
 >
-> 🔴 `__init__()`: [None](#tpu_infopy) - Currently a stub (`...`). Awaiting definition of fields like `device_path`, `driver_version`, and `max_power_watts`.  
+> 🔴 `__init__()`: [None](#ram_infopy) - Currently a stub (`...`). Awaiting definition of fields like `total_mb`, `available_mb`, `type` (e.g., DDR4, LPDDR5), and `frequency_mhz`.  
 >
-> *Note: This class is exported to ensure API stability. Infrastructure collectors should return `None` for TPU data until this schema is fully defined.*
-
+> *Note: This class is exported to ensure API stability. Infrastructure collectors should return `None` for RAM data until this schema is fully defined.*
+>
 > </p></details>
+
+### [hardware](hardware) / [enums.py](enums.py)
+> <details><summary><code>class PlatformType</code> - Enumeration of supported Edge AI hardware platforms.</summary><p>
+>
+> Defines the standard hardware targets for the benchmark suite. Used by the `SystemInfo` aggregate to classify the test environment.
+>
+> 🔴 `DESKTOP`: [str](#enumspy) - Standard x86_64 PC or Server.  
+> 🔴 `JETSON`: [str](#enumspy) - NVIDIA Jetson family (Nano, Xavier, Orin).  
+> 🔴 `RASPBERRY_PI`: [str](#enumspy) - Raspberry Pi family (Compute Modules and SBCs).  
+> 🔴 `INTEL_NUC`: [str](#enumspy) - Intel NUC or similar compact x86 Edge PCs.  
+> 🔴 `HAILO`: [str](#enumspy) - Systems equipped with Hailo AI accelerators.  
+> 🔴 `UNKNOWN`: [str](#enumspy) - Fallback for unrecognized or unsupported platforms.  
+>
+> </p></details>
+
 ---
 
 ### Testing Status Legend
-🔴 **FULL** - Comprehensive tests (DDT, mocks, edge cases, negative paths, serialization checks)  
+🟢 **FULL** - Comprehensive tests (DDT, mocks, edge cases, negative paths, serialization checks)  
 🟡 **PARTIAL** - Tests exist but need improvement (e.g., missing edge cases for `None` values)  
 🔴 **NONE** - No tests written yet (Stubs or pending implementation)

@@ -2,13 +2,14 @@
 
 import logging
 
-from core.domain.config import SystemInfoConfig
-from core.domain.hardware.enums import PlatformType
 from core.domain.system.system import SystemInfo
+from core.domain.hardware.enums import PlatformType
+from core.domain.config.system import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu import collect_cpu
 from infrastructure.hardware.collectors.gpu import collect_gpu
 from infrastructure.hardware.collectors.operating_system import collect_os
 from infrastructure.hardware.collectors.temperature import collect_temperature
+
 
 logger = logging.getLogger(__name__)
 

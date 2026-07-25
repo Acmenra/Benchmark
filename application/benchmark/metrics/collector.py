@@ -3,22 +3,21 @@
 import time
 import logging
 
+from core.domain.config import BenchmarkCase
 from infrastructure.metrics.cpu import CPUMetricsCollector
 from infrastructure.metrics.gpu import GPUMetricsCollector
-
-from core.domain.config import BenchmarkRun
 from core.domain.metrics import MetricStatistics, DataPoint, BenchmarkResult, LatencyStats
 
 
 logger = logging.getLogger(__name__)
 
 
-class MetricsCollector: # TODO определиться кто из них (этот или в .base MetricsCollector)
+class MetricsCollector:
     """Собирает метрики за один benchmark-прогон модели."""
 
     def __init__(
         self,
-        benchmark_run: BenchmarkRun,
+        benchmark_run: BenchmarkCase,
         interval_seconds: float = 1.0,
         cpu_collector: CPUMetricsCollector | None = None,
         gpu_collector: GPUMetricsCollector | None = None,

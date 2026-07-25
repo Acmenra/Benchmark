@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from core.domain.config import Config, ModelConfig, BenchmarkConfig, BenchmarkRun, SystemInfoConfig, OutputConfig
+from core.domain.config import Config, ModelConfig, BenchmarkConfig, BenchmarkCase, SystemInfoConfig, ReportConfig
 from core.enums.model import (
     DeviceType,
     ModelFamily,
@@ -30,7 +30,7 @@ def build_default_config() -> Config:
 
     return Config(
         benchmark=BenchmarkConfig(
-            runs=(BenchmarkRun(models=models),),
+            runs=(BenchmarkCase(models=models),),
             formats=tuple(model_format.value for model_format in ModelFormat),
             quantization=(QuantizationLevel.FP32.value,),
             task_type=TaskType.DETECT,
@@ -47,7 +47,7 @@ def build_default_config() -> Config:
             collect_power=True,
             collect_temperature=True,
         ),
-        output=OutputConfig(
+        output=ReportConfig(
             directory=Path("./results"),
             formats=("json", "csv", "markdown"),
             use_timestamp=True,

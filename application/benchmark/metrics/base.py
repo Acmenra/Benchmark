@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 
 
-class MetricCollector(ABC):
+class BaseMetricsCollector(ABC):
     """Базовый класс для оркестраторов сборщиков метрик."""
 
     @abstractmethod

@@ -4,9 +4,8 @@ import logging
 from typing import Any
 from abc import ABC, abstractmethod
 
-from core.domain.config import SystemInfoConfig
 from core.domain.hardware import GPUInfo, CPUInfo
-
+from core.domain.config.system import SystemInfoConfig
 
 logger = logging.getLogger(__name__)
 

@@ -4,19 +4,20 @@ import time
 import logging
 import threading
 
-from core.domain.config import SystemInfoConfig
-from application.benchmark.metrics.base import MetricCollector
+from core.domain.config.system import SystemInfoConfig
 from core.domain.metrics import MetricStatistics, CPUMetrics, DataPoint
 
 from infrastructure.hardware.collectors.cpu import CPUCollector
 from infrastructure.hardware.collectors.power import collect_cpu_power_watts
 from infrastructure.hardware.collectors.temperature import collect_cpu_temperature_celsius
 
+from application.benchmark.metrics import BaseMetricsCollector
+
 
 logger = logging.getLogger(__name__)
 
 
-class CPUMetricsCollector(MetricCollector):
+class CPUMetricsCollector(BaseMetricsCollector):
     """Фоновый сборщик runtime-метрик CPU для одного benchmark-прогона."""
 
     def __init__(

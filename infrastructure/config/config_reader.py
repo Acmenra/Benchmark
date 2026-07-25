@@ -6,7 +6,7 @@ from typing import Any
 from pathlib import Path
 from core.enums.model import DeviceType, QuantizationLevel, TaskType
 from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
-from core.domain.config import BenchmarkConfig, ModelConfig, BenchmarkRun, Config, OutputConfig, SystemInfoConfig
+from core.domain.config import BenchmarkConfig, ModelConfig, BenchmarkCase, Config, ReportConfig, SystemInfoConfig
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
             for model in run_data.models
             for size in model.sizes
         )
-        runs.append(BenchmarkRun(models=models))
+        runs.append(BenchmarkCase(models=models))
 
     payload = benchmark_data.model_dump(
         exclude={"runs", "formats", "quantization", "device_type", "task_type"}
@@ -64,7 +64,7 @@ def read_yaml(path: Path | str) -> Config:
         benchmark = _build_benchmark_config(benchmark_data)
 
     output_data = schema.output
-    output = OutputConfig(
+    output = ReportConfig(
         directory=Path(output_data.directory),
         formats=tuple(output_data.formats),
         use_timestamp=output_data.use_timestamp,

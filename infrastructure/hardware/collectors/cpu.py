@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from core.domain.hardware import CPUInfo
-from core.domain.config import SystemInfoConfig
+from core.domain.config.system import SystemInfoConfig
 from core.domain.metrics import MetricStatistics, DataPoint
 from infrastructure.hardware.collectors.base import BaseCollector
 

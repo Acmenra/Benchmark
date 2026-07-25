@@ -9,8 +9,7 @@ from core.domain.hardware.mps_info import MPSInfo
 from core.domain.hardware.npu_info import NPUInfo
 from core.domain.hardware.tpu_info import TPUInfo
 from core.domain.hardware.ram_info import RAMInfo
-from core.enums.hardware import PlatformType
-
+from core.domain.hardware.enums import PlatformType
 
 logger = logging.getLogger(__name__)
 
