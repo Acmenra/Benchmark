@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from typing import Any
-from infrastructure.reporting.utils import to_report_items
+from infrastructure.utils.utils import to_report_items
 from application.benchmark.reporter.base import BaseReporter
 
 

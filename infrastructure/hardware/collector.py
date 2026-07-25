@@ -5,9 +5,9 @@ import logging
 from core.domain.system.system import SystemInfo
 from core.domain.hardware.enums import PlatformType
 from core.domain.config.system import SystemInfoConfig
-from infrastructure.hardware.collectors.cpu import collect_cpu
-from infrastructure.hardware.collectors.gpu import collect_gpu
-from infrastructure.hardware.collectors.operating_system import collect_os
+from infrastructure.hardware.collectors.cpu import CPUCollector
+from infrastructure.hardware.collectors.gpu import GPUCollector
+from infrastructure.hardware.collectors.operating_system import OSCollector
 from infrastructure.hardware.collectors.temperature import collect_temperature
 
 
@@ -29,11 +29,14 @@ class HardwareCollector:
 
     def __init__(self, system_info_config: SystemInfoConfig) -> None:
         self.system_info_config = system_info_config
+        self.cpu_collector = CPUCollector()
+        self.gpu_collector = GPUCollector()
+        self.os_collector = OSCollector()
 
     def get_system_info(self) -> SystemInfo:
-        cpu = collect_cpu()
-        gpu = collect_gpu() if self.system_info_config.collect_gpu else None
-        os_info = collect_os()
+        cpu = self.cpu_collector.collect()
+        gpu = self.gpu_collector.collect() if self.system_info_config.collect_gpu else None
+        os_info = self.os_collector.collect()
         temperature = (
             collect_temperature()
             if self.system_info_config.collect_temperature
@@ -45,6 +48,8 @@ class HardwareCollector:
             device_name=None,
             cpu=cpu,
             gpu=gpu,
+            npu=None,
+            tpu=None,
             os=os_info,
             temperature=temperature,
         )

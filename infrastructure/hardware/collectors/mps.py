@@ -30,6 +30,9 @@ class MPSCollector:
 
         return self._temperature_psutil()
 
+    def collect(self): # TODO
+        ...
+
     def _temperature_powermetrics(self) -> float | None:
         """Получить температуру через powermetrics на macOS."""
         try:

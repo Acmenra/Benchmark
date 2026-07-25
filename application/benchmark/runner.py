@@ -8,14 +8,14 @@ import torch
 import logging
 import numpy as np
 from pathlib import Path
+from ultralytics import YOLO
 from typing import Generator
 from dataclasses import dataclass
 
 from acmenra_cv import YOLOBackend
-from ultralytics import YOLO
 
+from core.domain.config import BenchmarkConfig, BenchmarkCase
 from application.benchmark.metrics.collector import MetricsCollector
-from core.domain.config import BenchmarkConfig, BenchmarkRun
 from core.domain.metrics import ModelBenchmarkResult, LatencyStats, CPUMetrics, GPUMetrics, QualityMetrics
 
 from core.enums.model import (
@@ -69,7 +69,7 @@ class BenchmarkRunner:
         for case in self.benchmark_config.runs:
             yield from self._run_case(case)
 
-    def _run_case(self, case: BenchmarkRun) -> Generator[ModelBenchmarkResult, None, None]:
+    def _run_case(self, case: BenchmarkCase) -> Generator[ModelBenchmarkResult, None, None]:
         """Выполнить один benchmark-кейс и возвращать результаты моделей по мере готовности.
 
         Args:

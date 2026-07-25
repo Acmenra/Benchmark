@@ -3,7 +3,7 @@
 import logging
 
 from core.entities.metrics import DataPoint, MetricStatistics
-from infrastructure.reporting.utils import to_plain_data
+from infrastructure.utils.utils import to_plain_data
 
 logger = logging.getLogger(__name__)
 

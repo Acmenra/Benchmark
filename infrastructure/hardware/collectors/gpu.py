@@ -13,7 +13,7 @@ from core.domain.hardware.enums import PlatformType
 from core.domain.config.system import SystemInfoConfig
 from core.domain.metrics import MetricStatistics, GPUMetrics, DataPoint
 from infrastructure.hardware.collectors.base import BaseCollector
-
+from infrastructure.utils.utils import to_float, to_int, read_text
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class GPUCollector(BaseCollector):
         super().__init__(
             system_info_config
             or SystemInfoConfig(
+                collect_сpu=True,
                 collect_gpu=True,
                 collect_power=False,
                 collect_temperature=False,
@@ -38,44 +39,44 @@ class GPUCollector(BaseCollector):
 
     def info(self) -> GPUInfo:
         """Вернуть статическую информацию о GPU."""
-        return self.get_hardware_info()
+        return self.collect()
 
     def tmp(self) -> MetricStatistics | None:
         """Вернуть текущую температуру GPU в градусах Цельсия."""
         temperature = self._get_nvml_temperature()
         if temperature is None:
             temperature = self._get_smi_float("temperature.gpu")
-        return _build_metric(value=temperature, unit="celsius")
+        return self._build_metric(value=temperature, unit="celsius")
 
     def frq(self) -> MetricStatistics | None:
         """Вернуть текущую частоту GPU в МГц."""
         frequency = self._get_nvml_frequency()
         if frequency is None:
             frequency = self._get_smi_float("clocks.gr")
-        return _build_metric(value=frequency, unit="mhz")
+        return self._build_metric(value=frequency, unit="mhz")
 
     def prsnt(self) -> MetricStatistics | None:
         """Вернуть текущий процент загрузки GPU."""
         utilization = self._get_nvml_utilization()
         if utilization is None:
             utilization = self._get_smi_float("utilization.gpu")
-        return _build_metric(value=utilization, unit="percent")
+        return self._build_metric(value=utilization, unit="percent")
 
     def mem(self) -> MetricStatistics | None:
         """Вернуть текущий объем занятой VRAM в мегабайтах."""
         memory_used_mb = self._get_nvml_memory_used_mb()
         if memory_used_mb is None:
             memory_used_mb = self._get_smi_float("memory.used")
-        return _build_metric(value=memory_used_mb, unit="megabyte")
+        return self._build_metric(value=memory_used_mb, unit="megabyte")
 
     def power(self) -> MetricStatistics | None:
         """Вернуть текущее энергопотребление GPU в ваттах."""
         power_watts = self._get_nvml_power_watts()
         if power_watts is None:
             power_watts = self._get_smi_float("power.draw")
-        return _build_metric(value=power_watts, unit="watt")
+        return self._build_metric(value=power_watts, unit="watt")
 
-    def get_hardware_info(self) -> GPUInfo:
+    def collect(self) -> GPUInfo:
         """Вернуть статическую информацию о GPU."""
         # Сейчас реальные GPU-данные собираются через NVIDIA-инструменты.
         # Для Jetson/Raspberry Pi/Hailo ветки уже выделены через _detect_platform,
@@ -120,7 +121,7 @@ class GPUCollector(BaseCollector):
 
     def _detect_platform(self) -> PlatformType:
         """Определить аппаратную платформу по доступным локальным признакам."""
-        device_model = _read_text(Path("/proc/device-tree/model")).lower()
+        device_model = read_text(Path("/proc/device-tree/model")).lower()
 
         if "raspberry pi" in device_model:
             return PlatformType.RASPBERRY_PI
@@ -159,9 +160,9 @@ class GPUCollector(BaseCollector):
         assert self._pynvml is not None
         assert self._handle is not None
 
-        name = _decode_nvml_value(self._pynvml.nvmlDeviceGetName(self._handle))
+        name = self._decode_nvml_value(self._pynvml.nvmlDeviceGetName(self._handle))
         memory = self._pynvml.nvmlDeviceGetMemoryInfo(self._handle)
-        driver_version = _decode_nvml_value(self._pynvml.nvmlSystemGetDriverVersion())
+        driver_version = self._decode_nvml_value(self._pynvml.nvmlSystemGetDriverVersion())
 
         return GPUInfo(
             name=name,
@@ -246,7 +247,7 @@ class GPUCollector(BaseCollector):
 
         return GPUInfo(
             name=values[0],
-            memory_mb=_to_int(values[1]),
+            memory_mb=to_int(values[1]),
             driver_version=values[2],
             cuda_version=None,
         )
@@ -255,7 +256,7 @@ class GPUCollector(BaseCollector):
         values = self._query_nvidia_smi(query)
         if not values:
             return None
-        return _to_float(values[0])
+        return to_float(values[0])
 
     def _query_nvidia_smi(self, query: str) -> list[str] | None:
         if not self._nvidia_smi_available:
@@ -284,47 +285,22 @@ class GPUCollector(BaseCollector):
         return [value.strip() for value in first_line.split(",")]
 
 
-def collect_gpu() -> GPUInfo:
-    """Собрать базовую информацию о GPU через общий GPUCollector."""
-    return GPUCollector().get_hardware_info()
+    def _build_metric(self, value: float | int | None, unit: str) -> MetricStatistics | None:
+        if value is None:
+            return None
 
-
-def _build_metric(value: float | int | None, unit: str) -> MetricStatistics | None:
-    if value is None:
-        return None
-
-    metric = MetricStatistics(unit=unit)
-    metric.history.append(
-        DataPoint(
-            time_in_ms=int(time.time() * 1000),
-            value=value,
+        metric = MetricStatistics(unit=unit)
+        metric.history.append(
+            DataPoint(
+                time_in_ms=int(time.time() * 1000),
+                value=value,
+            )
         )
-    )
-    return metric
+        return metric
 
 
-def _decode_nvml_value(value: bytes | str) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="ignore")
-    return value
+    def _decode_nvml_value(self, value: bytes | str) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="ignore")
+        return value
 
-
-def _to_float(value: str) -> float | None:
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
-def _to_int(value: str) -> int | None:
-    try:
-        return int(float(value))
-    except ValueError:
-        return None
-
-
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return ""

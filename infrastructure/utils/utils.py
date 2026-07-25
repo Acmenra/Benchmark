@@ -1,4 +1,4 @@
-# infrastructure/reporting/utils.py
+# infrastructure/utils/utils.py
 
 import json
 import logging
@@ -111,3 +111,37 @@ def to_report_items(data: Any) -> List[Dict[str, Any]]:
             return [plain]
         else:
             return [{"value": plain}]
+
+
+def to_float(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def to_int(value: str) -> int | None:
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+def read_int(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8", errors="ignore").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def empty_to_none(value: str) -> str | None:
+    """Преобразовать пустую строку в None для отчета."""
+    stripped_value = value.strip()
+    return stripped_value or None
+

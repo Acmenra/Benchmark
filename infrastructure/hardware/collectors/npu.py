@@ -28,6 +28,9 @@ class NPUCollector:
 
         return self._temperature_hailo_sysfs()
 
+    def collect(self): # TODO
+        ...
+
     def _temperature_hwmon(self) -> float | None:
         """Найти NPU-датчики в /sys/class/hwmon."""
         hwmon_root = Path("/sys/class/hwmon")

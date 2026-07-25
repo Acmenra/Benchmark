@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict
 from dataclasses import dataclass
 
-from core.domain.config import BenchmarkRun
+from core.domain.config import BenchmarkCase
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ class BenchmarkResult:
     Результат бенчмарка для ОДНОГО кейса (может содержать несколько моделей).
     Используется для агрегированных данных по кейсу.
     """
-    case: BenchmarkRun
+    case: BenchmarkCase
     performance: LatencyStats | None = None
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None

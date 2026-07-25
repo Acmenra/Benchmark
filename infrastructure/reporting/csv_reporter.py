@@ -5,7 +5,7 @@ import csv
 import logging
 from typing import Any
 from application.benchmark.reporter.base import BaseReporter
-from .utils import to_report_items, flatten_dict
+from infrastructure.utils.utils import to_report_items, flatten_dict
 
 
 logger = logging.getLogger(__name__)

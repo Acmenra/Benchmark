@@ -15,6 +15,10 @@ class BaseCollector(ABC):
         self.system_info_config = system_info_config
 
     @abstractmethod
+    def get_metrics(self) -> ...:
+        """Возвращает метрики во время одного пробега."""
+
+    @abstractmethod
     def info(self) -> GPUInfo | CPUInfo:
         ...
 
@@ -30,10 +34,3 @@ class BaseCollector(ABC):
     def prsnt(self) -> Any:
         ...
 
-    @abstractmethod 
-    def get_hardware_info(self) -> ...: 
-        """Возвращает статические данные о железе."""
-
-    @abstractmethod
-    def get_metrics(self) -> ...:
-        """Возвращает метрики во время одного пробега."""

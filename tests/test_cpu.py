@@ -13,7 +13,7 @@ from hardware.entities import CPUInfo
 
 
 def test_collect_cpu_returns_cpu_info() -> None:
-    """collect_cpu должен возвращать базовую информацию о процессоре."""
+    """collect должен возвращать базовую информацию о процессоре."""
     cpu_info = collect_cpu()
 
     assert isinstance(cpu_info, CPUInfo)

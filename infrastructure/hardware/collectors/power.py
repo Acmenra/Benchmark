@@ -7,6 +7,7 @@ import platform
 import subprocess
 from pathlib import Path
 
+from infrastructure.utils.utils import read_int
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,14 @@ def _collect_linux_rapl_cpu_power_watts() -> float | None:
     if energy_path is None:
         return None
 
-    energy_before = _read_int(energy_path)
+    energy_before = read_int(energy_path)
     if energy_before is None:
         return None
 
     measured_at = time.perf_counter()
     time.sleep(0.1)
 
-    energy_after = _read_int(energy_path)
+    energy_after = read_int(energy_path)
     if energy_after is None:
         return None
 
@@ -112,13 +113,6 @@ def _find_rapl_energy_path() -> Path | None:
             return candidate
 
     return None
-
-
-def _read_int(path: Path) -> int | None:
-    try:
-        return int(path.read_text(encoding="utf-8", errors="ignore").strip())
-    except (OSError, ValueError):
-        return None
 
 
 def _is_valid_power(power_watts: float) -> bool:
