@@ -3,15 +3,18 @@
 import os
 import time
 import psutil
+import logging
 import platform
 import subprocess
 from pathlib import Path
 
-from core.entities.config import SystemInfoConfig
-from core.entities.hardware import CPUInfo
-from core.entities.metrics import DataPoint, MetricStatistics
+from core.domain.hardware import CPUInfo
+from core.domain.config import SystemInfoConfig
+from core.domain.metrics import MetricStatistics, DataPoint
 from infrastructure.hardware.collectors.base import BaseCollector
 
+
+logger = logging.getLogger(__name__)
 
 
 class CPUCollector(BaseCollector):

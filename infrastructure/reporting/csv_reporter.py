@@ -1,10 +1,14 @@
 # infrastructure/reporting/csv_reporter.py
 
-import csv
 import os
+import csv
+import logging
 from typing import Any
 from application.benchmark.reporter.base import BaseReporter
 from .utils import to_report_items, flatten_dict
+
+
+logger = logging.getLogger(__name__)
 
 
 class CSVReporter(BaseReporter):

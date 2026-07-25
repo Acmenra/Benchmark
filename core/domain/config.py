@@ -1,4 +1,4 @@
-# core/entities/config.py
+# core/domain/config.py
 
 import logging
 from dataclasses import dataclass, fields, is_dataclass
@@ -49,7 +49,7 @@ class ModelConfig(_ConfigBase):
 
 
 @dataclass(slots=True, frozen=True)
-class BenchmarkRun(_ConfigBase):
+class BenchmarkRun(_ConfigBase): # TODO переименовать, так как сущьность не может называться глаголом
     """Конфигурация одного запуска бенчмарка."""
 
     models: tuple[ModelConfig, ...]

@@ -1,15 +1,9 @@
 # infrastructure/config/default_config.py
 
+import logging
 from pathlib import Path
 
-from core.entities.config import (
-    BenchmarkConfig,
-    BenchmarkRun,
-    Config,
-    ModelConfig,
-    OutputConfig,
-    SystemInfoConfig,
-)
+from core.domain.config import Config, ModelConfig, BenchmarkConfig, BenchmarkRun, SystemInfoConfig, OutputConfig
 from core.enums.model import (
     DeviceType,
     ModelFamily,
@@ -18,6 +12,9 @@ from core.enums.model import (
     QuantizationLevel,
     TaskType,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_default_config() -> Config:

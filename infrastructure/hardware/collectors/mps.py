@@ -1,11 +1,11 @@
 # infrastructure/hardware/collectors/mps.py
 
+import re
 import logging
 import platform
-import re
 import subprocess
-
 from infrastructure.hardware.collectors.temperature import _is_valid_temperature
+
 
 logger = logging.getLogger(__name__)
 

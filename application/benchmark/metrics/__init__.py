@@ -1,4 +1,4 @@
-# application/metrics/__init__.py
+# application/benchmark/metrics/__init__.py
 
 import logging
 
@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = [
+    'MetricCollector',
+    'MetricsCollector'
 ]
 
 

@@ -1,13 +1,14 @@
 # infrastructure/hardware/collectors/temperature.py
 
-import logging
 import os
-import platform
 import re
+import logging
+import platform
 import subprocess
 from pathlib import Path
 
-from core.entities.hardware import TemperatureCapabilitiesInfo
+from core.domain.system.system import TemperatureCapabilitiesInfo
+
 
 logger = logging.getLogger(__name__)
 

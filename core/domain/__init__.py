@@ -1,4 +1,4 @@
-# application/benchmark/metrics/hardware/__init__.py
+# core/domain/__init__.py
 
 import logging
 

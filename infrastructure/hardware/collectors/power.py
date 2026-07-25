@@ -1,11 +1,12 @@
 # infrastructure/hardware/collectors/power.py
 
+import re
+import time
 import logging
 import platform
-import re
 import subprocess
-import time
 from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 

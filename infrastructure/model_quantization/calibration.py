@@ -1,12 +1,15 @@
 # infrastructure/model_quantization/calibration.py
 
-import glob
-from pathlib import Path
-from typing import Any
-
 import cv2
-import numpy as np
 import yaml
+import glob
+import logging
+import numpy as np
+from typing import Any
+from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")

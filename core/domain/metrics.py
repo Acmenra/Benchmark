@@ -1,11 +1,10 @@
-# core/entities/metrics.py
+# core/domain/metrics.py
 
 import logging
-
-from dataclasses import dataclass
 from typing import Any, Dict
+from dataclasses import dataclass
 
-from core.entities.config import BenchmarkRun
+from core.domain.config import BenchmarkRun
 
 logger = logging.getLogger(__name__)
 

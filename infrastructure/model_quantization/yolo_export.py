@@ -1,9 +1,12 @@
 # infrastructure/model_quantization/yolo_export.py
 
 import shutil
+import logging
 from pathlib import Path
-
 from ultralytics import YOLO
+
+
+logger = logging.getLogger(__name__)
 
 
 class ModelExportError(RuntimeError):

@@ -1,12 +1,12 @@
 # infrastructure/metrics/quality.py
 
 import logging
-from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any
-
-from core.entities.metrics import QualityMetrics
+from pathlib import Path
+from abc import ABC, abstractmethod
 from core.enums.model import TaskType
+from core.domain.metrics import QualityMetrics
+
 
 logger = logging.getLogger(__name__)
 

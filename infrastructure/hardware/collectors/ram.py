@@ -2,6 +2,9 @@
 
 import logging
 
+from infrastructure.hardware.collectors.base import BaseCollector
+
+
 logger = logging.getLogger(__name__)
 
 

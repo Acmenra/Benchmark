@@ -1,10 +1,10 @@
 # core/enums/hardware.py
 
 import logging
+from enum import Enum
+
 
 logger = logging.getLogger(__name__)
-
-from enum import Enum
 
 
 class PlatformType(Enum):

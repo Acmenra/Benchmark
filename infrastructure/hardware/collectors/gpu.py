@@ -1,18 +1,19 @@
 # infrastructure/hardware/collectors/gpu.py
 
-import logging
-import platform as platform_module
-import shutil
-import subprocess
 import time
-from pathlib import Path
+import shutil
+import logging
+import subprocess
 from typing import Any
+from pathlib import Path
+import platform as platform_module
 
-from core.entities.config import SystemInfoConfig
-from core.entities.hardware import GPUInfo
-from core.entities.metrics import DataPoint, GPUMetrics, MetricStatistics
-from core.enums.hardware import PlatformType
+from core.domain.hardware import GPUInfo
+from core.domain.config import SystemInfoConfig
+from core.domain.hardware.enums import PlatformType
+from core.domain.metrics import MetricStatistics, GPUMetrics, DataPoint
 from infrastructure.hardware.collectors.base import BaseCollector
+
 
 logger = logging.getLogger(__name__)
 

@@ -1,12 +1,16 @@
 # infrastructure/reporting/utils.py
 
 import json
-from dataclasses import fields, is_dataclass
+import logging
 from enum import Enum
 from pathlib import Path
 from typing import Any, List, Dict
+from dataclasses import fields, is_dataclass
 
-from core.entities.metrics import MetricStatistics
+from core.domain.metrics import MetricStatistics
+
+
+logger = logging.getLogger(__name__)
 
 
 def to_plain_data(value: Any) -> Any:

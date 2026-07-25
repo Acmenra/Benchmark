@@ -1,21 +1,13 @@
 # infrastructure/config/config_reader.py
 
-import logging
-from pathlib import Path
-from typing import Any
-
 import yaml
-
-from core.entities.config import (
-    BenchmarkConfig,
-    BenchmarkRun,
-    Config,
-    ModelConfig,
-    OutputConfig,
-    SystemInfoConfig,
-)
+import logging
+from typing import Any
+from pathlib import Path
 from core.enums.model import DeviceType, QuantizationLevel, TaskType
 from infrastructure.config.configs_validator import ConfigError, ConfigsValidator
+from core.domain.config import BenchmarkConfig, ModelConfig, BenchmarkRun, Config, OutputConfig, SystemInfoConfig
+
 
 logger = logging.getLogger(__name__)
 

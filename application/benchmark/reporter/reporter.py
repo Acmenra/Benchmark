@@ -1,7 +1,12 @@
 # application/benchmark/reporter/reporter.py
 
+import logging
 from typing import List, Dict, Any
-from .base import BaseReporter
+from application.benchmark.reporter import BaseReporter
+
+
+logger = logging.getLogger(__name__)
+
 
 class Reporter:
     """Оркестратор, вызывающий все включённые репортеры."""

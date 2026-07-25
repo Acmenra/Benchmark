@@ -1,7 +1,12 @@
 # application/benchmark/reporter/base.py
 
-from abc import ABC, abstractmethod
+import logging
 from typing import Any
+from abc import ABC, abstractmethod
+
+
+logger = logging.getLogger(__name__)
+
 
 class BaseReporter(ABC):
     """Абстрактный базовый класс для репортеров конкретных форматов."""

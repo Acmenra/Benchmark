@@ -1,10 +1,12 @@
 # application/benchmark/reporter/__init__.py
 
 import logging
+from application.benchmark.reporter.base import BaseReporter
+from application.benchmark.reporter.reporter import Reporter
+
+
 logger = logging.getLogger(__name__)
 
-from .base import BaseReporter
-from .reporter import Reporter
 
 __all__ = [
     "BaseReporter",

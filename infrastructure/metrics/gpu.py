@@ -3,10 +3,11 @@
 import logging
 import threading
 
+from core.domain.config import SystemInfoConfig
+from core.domain.metrics import MetricStatistics, GPUMetrics
 from application.benchmark.metrics.base import MetricCollector
-from core.entities.config import SystemInfoConfig
-from core.entities.metrics import GPUMetrics, MetricStatistics
 from infrastructure.hardware.collectors.gpu import GPUCollector
+
 
 logger = logging.getLogger(__name__)
 

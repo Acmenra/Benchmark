@@ -1,28 +1,23 @@
 # application/benchmark/runner.py
 
 import gc
-import glob
-import logging
 import os
-from dataclasses import dataclass
+import cv2
+import glob
+import torch
+import logging
+import numpy as np
 from pathlib import Path
 from typing import Generator
+from dataclasses import dataclass
 
-import cv2
-import numpy as np
-import torch
 from acmenra_cv import YOLOBackend
 from ultralytics import YOLO
 
 from application.benchmark.metrics.collector import MetricsCollector
-from core.entities.config import BenchmarkConfig, BenchmarkRun
-from core.entities.metrics import (
-    CPUMetrics,
-    GPUMetrics,
-    LatencyStats,
-    ModelBenchmarkResult,
-    QualityMetrics,
-)
+from core.domain.config import BenchmarkConfig, BenchmarkRun
+from core.domain.metrics import ModelBenchmarkResult, LatencyStats, CPUMetrics, GPUMetrics, QualityMetrics
+
 from core.enums.model import (
     Coco,
     DeviceType,

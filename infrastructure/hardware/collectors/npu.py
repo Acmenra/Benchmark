@@ -6,6 +6,7 @@ from pathlib import Path
 
 from infrastructure.hardware.collectors.temperature import _is_valid_temperature
 
+
 logger = logging.getLogger(__name__)
 
 

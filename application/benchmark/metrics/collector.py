@@ -1,22 +1,19 @@
 # application/benchmark/metrics/collector.py
 
-import logging
 import time
+import logging
 
-from core.entities.config import BenchmarkRun
-from core.entities.metrics import (
-    BenchmarkResult,
-    DataPoint,
-    LatencyStats,
-    MetricStatistics,
-)
 from infrastructure.metrics.cpu import CPUMetricsCollector
 from infrastructure.metrics.gpu import GPUMetricsCollector
+
+from core.domain.config import BenchmarkRun
+from core.domain.metrics import MetricStatistics, DataPoint, BenchmarkResult, LatencyStats
+
 
 logger = logging.getLogger(__name__)
 
 
-class MetricsCollector:
+class MetricsCollector: # TODO определиться кто из них (этот или в .base MetricsCollector)
     """Собирает метрики за один benchmark-прогон модели."""
 
     def __init__(

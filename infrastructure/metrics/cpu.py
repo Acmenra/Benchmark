@@ -1,15 +1,17 @@
 # infrastructure/metrics/cpu.py
 
+import time
 import logging
 import threading
-import time
 
+from core.domain.config import SystemInfoConfig
 from application.benchmark.metrics.base import MetricCollector
-from core.entities.config import SystemInfoConfig
-from core.entities.metrics import CPUMetrics, DataPoint, MetricStatistics
+from core.domain.metrics import MetricStatistics, CPUMetrics, DataPoint
+
 from infrastructure.hardware.collectors.cpu import CPUCollector
 from infrastructure.hardware.collectors.power import collect_cpu_power_watts
 from infrastructure.hardware.collectors.temperature import collect_cpu_temperature_celsius
+
 
 logger = logging.getLogger(__name__)
 

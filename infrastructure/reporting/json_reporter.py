@@ -1,8 +1,13 @@
-import json
+
 import os
+import json
+import logging
 from typing import Any
+from infrastructure.reporting.utils import to_report_items
 from application.benchmark.reporter.base import BaseReporter
-from .utils import to_report_items
+
+
+logger = logging.getLogger(__name__)
 
 
 class JSONReporter(BaseReporter):

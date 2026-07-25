@@ -1,11 +1,12 @@
 # infrastructure/hardware/collectors/base.py
 
 import logging
-from abc import ABC, abstractmethod
 from typing import Any
+from abc import ABC, abstractmethod
 
-from core.entities.config import SystemInfoConfig
-from core.entities.hardware import CPUInfo, GPUInfo
+from core.domain.config import SystemInfoConfig
+from core.domain.hardware import GPUInfo, CPUInfo
+
 
 logger = logging.getLogger(__name__)
 

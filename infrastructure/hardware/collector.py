@@ -2,9 +2,9 @@
 
 import logging
 
-from core.entities.config import SystemInfoConfig
-from core.entities.hardware import SystemInfo
-from core.enums.hardware import PlatformType
+from core.domain.config import SystemInfoConfig
+from core.domain.hardware.enums import PlatformType
+from core.domain.system.system import SystemInfo
 from infrastructure.hardware.collectors.cpu import collect_cpu
 from infrastructure.hardware.collectors.gpu import collect_gpu
 from infrastructure.hardware.collectors.operating_system import collect_os
