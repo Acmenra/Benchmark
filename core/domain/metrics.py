@@ -1,7 +1,7 @@
 # core/domain/metrics.py
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
 from core.domain.config import BenchmarkCase
@@ -11,36 +11,50 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DataPoint:
-    time_in_ms: int
+    time_in_ms: float
     value: float | int
 
 
 class MetricStatistics:
-    def __init__(self, unit: str | None = None) -> None:
+    def __init__(self, unit: Optional[str] = None) -> None:
         self.history: list[DataPoint] = []
         self.unit: str | None = unit
 
+    def __str__(self) -> str:
+        if not self.history:
+            return f"MetricStatistics[{self.unit or 'unknown'}]: empty"
+        return (f"Stats[{self.unit}]: n={len(self.history)}, "
+                f"min={self.minimum:.2f}, mean={self.mean:.2f}, "
+                f"p95={self.p95:.2f}, max={self.maximum:.2f}")
+
+    def __repr__(self) -> str:
+        """Краткое представление для логирования. НЕ выводит историю."""
+        count = len(self.history)
+        mean_val = f"{self.mean:.2f}" if self.mean is not None else "N/A"
+        return f"MetricStatistics(unit='{self.unit}', samples={count}, mean={mean_val})"
+
+
     @property
-    def minimum(self) -> float | None:
+    def minimum(self) -> Optional[float]:
         if len(self.history) == 0:
             return None
         return min([i.value for i in self.history])
 
     @property
-    def maximum(self) -> float | None:
+    def maximum(self) -> Optional[float]:
         if len(self.history) == 0:
             return None
         return max([i.value for i in self.history])
 
     @property
-    def mean(self) -> float | None:
+    def mean(self) -> Optional[float]:
         if len(self.history) == 0:
             return None
         values = [i.value for i in self.history]
         return sum(values) / len(values)
     
     @property
-    def median(self) -> float | None:
+    def median(self) -> Optional[float]:
         if len(self.history) == 0:
             return None
 
@@ -54,14 +68,14 @@ class MetricStatistics:
             return values[n // 2]
 
     @property
-    def p95(self) -> float | None:
+    def p95(self) -> Optional[float]:
         return self._percentile(0.95)
 
     @property
-    def p99(self) -> float | None:
+    def p99(self) -> Optional[float]:
         return self._percentile(0.99)
 
-    def _percentile(self, coeff: float) -> float | None:
+    def _percentile(self, coeff: float) -> Optional[float]:
         if len(self.history) == 0:
             return None
         

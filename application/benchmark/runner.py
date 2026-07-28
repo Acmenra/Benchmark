@@ -12,9 +12,9 @@ from ultralytics import YOLO
 from typing import Generator
 from dataclasses import dataclass
 
-from acmenra_cv import YOLOBackend
+from acmenra_cv import YOLOBackend, Backend
 
-from core.domain.config import BenchmarkConfig, BenchmarkCase
+from core.domain.config import BenchmarkConfig, BenchmarkCase, SystemInfoConfig
 from application.benchmark.metrics.collector import MetricsCollector
 from core.domain.metrics import ModelBenchmarkResult, LatencyStats, CPUMetrics, GPUMetrics, QualityMetrics
 
@@ -26,10 +26,14 @@ from core.enums.model import (
     export_extension,
     ultralytics_export_format,
 )
+from infrastructure.exceptions import ONNXQuantizationError
+from infrastructure.hardware.collectors.cpu import CPUCollector
+from infrastructure.hardware.collectors.gpu import GPUCollector
+from infrastructure.metrics.cpu import CPUMetricsCollector
+from infrastructure.metrics.gpu import GPUMetricsCollector
 from infrastructure.metrics.quality import YOLOQualityMetricsCollector
 from infrastructure.model_quantization.onnx import (
-    ONNXINT8Quantizer,
-    ONNXQuantizationError,
+    ONNXINT8Quantizer
 )
 from infrastructure.model_quantization.openvino import (
     OpenVINOFP16Quantizer,
@@ -56,8 +60,10 @@ class ResolvedModelArtifact:
 class BenchmarkRunner:
     """Координирует загрузку модели, инференс и сбор метрик."""
 
-    def __init__(self, benchmark_config: BenchmarkConfig) -> None:
+    def __init__(self, benchmark_config: BenchmarkConfig, system_info_config: SystemInfoConfig) -> None:
         self.benchmark_config = benchmark_config
+        self.cpu = CPUCollector(system_info_config=system_info_config)
+        self.gpu = GPUCollector(system_info_config=system_info_config)
 
     def run_suite(self) -> Generator[ModelBenchmarkResult, None, None]:
         """Запустить все benchmark-кейсы и возвращать результаты по мере готовности.
@@ -112,7 +118,10 @@ class BenchmarkRunner:
                         )
                         continue
 
-                    collector = MetricsCollector(case)
+                    collector = MetricsCollector(benchmark_case=case,
+                                                 cpu_collector=CPUMetricsCollector(cpu_collector=self.cpu),
+                                                 gpu_collector=GPUMetricsCollector(gpu_collector=self.gpu),
+                                                 interval_seconds=0.1)
                     model: YOLOBackend | None = None
                     run_failed = False
                     try:
@@ -243,20 +252,49 @@ class BenchmarkRunner:
         except Exception as error:
             logger.exception("Не удалось освободить ресурсы модели: %s", error)
 
-    def _get_dataset_path(self) -> Path:
-        if self.benchmark_config.test_images is None:
-            raise ValueError("benchmark.test_images is required for benchmark run")
+    def _get_dataset_path(self) -> Path | None:
+        path_str = self.benchmark_config.test_images
 
-        dataset_path = Path(self.benchmark_config.test_images)
+        # 1. Явный запрос на синтетику или отсутствие пути
+        if not path_str or str(path_str).lower() == "synthetic":
+            return None
+
+        dataset_path = Path(path_str)
+
+        # 2. Если передали YAML-файл, а не папку
+        # (Для замера чистой производительности железа нам не нужен парсинг YAML,
+        # мы просто генерируем синтетику, чтобы не зависеть от диска)
+        if dataset_path.suffix.lower() in (".yaml", ".yml"):
+            logger.warning(
+                f"В test_images указан YAML-файл ({dataset_path.name}), а не папка с данными. "
+                "Для замера чистой производительности (без I/O диска) переключаюсь на синтетические данные."
+            )
+            return None
+
+        # 3. Если папка не существует
         if not dataset_path.is_dir():
-            raise ValueError(f"Dataset path not found: {dataset_path}")
-        
-        # Если в папке есть подпапка 'images/', используем её
-        # (для структур где датасет содержит images/ и labels/)
-        images_subdir = dataset_path / "images"
-        if images_subdir.is_dir():
-            return images_subdir
-        
+            logger.warning(
+                f"Путь '{dataset_path}' не найден или не является директорией. "
+                "Переключаюсь на синтетические данные."
+            )
+            return None
+
+        # 4. Проверяем структуру СТУДЕНТОВ (Ultralytics default): dataset/images/...
+        if (dataset_path / "images").is_dir():
+            logger.info("Обнаружена структура датасета Ultralytics (папка 'images' в корне).")
+            return dataset_path / "images"
+
+        # 5. Проверяем ТВОЮ структуру (Classic CV): dataset/val/images или dataset/train/images
+        if (dataset_path / "val" / "images").is_dir():
+            logger.info("Обнаружена классическая структура датасета (папка 'val/images').")
+            return dataset_path / "val" / "images"
+
+        if (dataset_path / "train" / "images").is_dir():
+            logger.info("Обнаружена классическая структура датасета (папка 'train/images').")
+            return dataset_path / "train" / "images"
+
+        # 6. Fallback: считаем, что картинки лежат прямо в корне указанной папки
+        logger.info("Специфичные подпапки не найдены. Буду искать изображения в корне указанной директории.")
         return dataset_path
 
     def _collect_image_paths(self, dataset_path: Path) -> list[Path]:
@@ -282,12 +320,10 @@ class BenchmarkRunner:
         """Вернуть тип задачи YOLO из конфига."""
         return self.benchmark_config.task_type or TaskType.DETECT
 
-    def _run_model_on_images(
-        self,
-        model: YOLOBackend,
-        image_paths: list[Path],
-        collector: MetricsCollector,
-    ) -> None:
+    def _run_model_on_images(self,
+                             model: Backend,
+                             image_paths: list[Path],
+                             collector: MetricsCollector) -> None:
         main_iterations = self.benchmark_config.main_iterations or len(image_paths)
 
         for iteration in range(main_iterations):
@@ -303,13 +339,11 @@ class BenchmarkRunner:
             finally:
                 collector.mark_stop()
 
-    def resolve_model_artifact(
-        self,
-        family: str,
-        size: str,
-        format_: str,
-        quantization: str = QuantizationLevel.FP32.value,
-    ) -> ResolvedModelArtifact | None:
+    def resolve_model_artifact(self,
+                               family: str,
+                               size: str,
+                               format_: str,
+                               quantization: str = QuantizationLevel.FP32.value) -> ResolvedModelArtifact | None:
         """Вернуть модель строго в запрошенном формате и квантовании."""
         requested_quantization = self._normalize_quantization(quantization)
 

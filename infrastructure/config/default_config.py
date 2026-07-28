@@ -43,6 +43,7 @@ def build_default_config() -> Config:
             test_images="./data/test_images",
         ),
         system_info=SystemInfoConfig(
+            collect_cpu=True,
             collect_gpu=True,
             collect_power=True,
             collect_temperature=True,

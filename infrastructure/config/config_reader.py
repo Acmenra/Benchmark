@@ -74,7 +74,7 @@ def read_yaml(path: Path | str) -> Config:
     system_info = None
     if system_info_data is not None:
         system_info = SystemInfoConfig(
-            collect_сpu=True,
+            collect_cpu=system_info_data.collect_cpu,
             collect_gpu=system_info_data.collect_gpu,
             collect_power=system_info_data.collect_power,
             collect_temperature=system_info_data.collect_temperature,

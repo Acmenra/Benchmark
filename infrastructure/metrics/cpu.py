@@ -1,14 +1,14 @@
-# infrastructure/metrics/cpu.py
+# infrastructure/metrics/collector.py
 
 import time
 import logging
 import threading
+from typing import List
 
-from core.domain.config.system import SystemInfoConfig
 from core.domain.metrics import MetricStatistics, CPUMetrics, DataPoint
 
-from infrastructure.hardware.collectors.cpu import CPUCollector
-from infrastructure.hardware.collectors.power import collect_cpu_power_watts
+from infrastructure.hardware.collectors.cpu.collector import CPUCollector
+from infrastructure.hardware.collectors.pwr.power import collect_cpu_power_watts
 from infrastructure.hardware.collectors.temperature import collect_cpu_temperature_celsius
 
 from application.benchmark.metrics import BaseMetricsCollector
@@ -20,33 +20,30 @@ logger = logging.getLogger(__name__)
 class CPUMetricsCollector(BaseMetricsCollector):
     """Фоновый сборщик runtime-метрик CPU для одного benchmark-прогона."""
 
-    def __init__(
-        self,
-        interval_seconds: float = 1.0,
-        cpu_collector: CPUCollector | None = None,
-    ) -> None:
+    def __init__(self, cpu_collector: CPUCollector, interval_seconds: float = 1.0) -> None:
         super().__init__()
         if interval_seconds <= 0:
             raise ValueError("interval_seconds должен быть больше 0")
 
+        self._history = []
         self.interval_seconds = interval_seconds
-        self.cpu_collector = cpu_collector or CPUCollector(
-            SystemInfoConfig(
-                collect_gpu=False,
-                collect_power=False,
-                collect_temperature=False,
-            )
-        )
-        self._cpu_utilization = MetricStatistics(unit="percent")
+        self.cpu_collector = cpu_collector
+
+        self._cpu_utilization = MetricStatistics(unit="percent") # TODO args
         self._cpu_power = MetricStatistics(unit="watt")
         self._cpu_temperature = MetricStatistics(unit="celsius")
         self._collect_cpu_power = True
         self._collect_cpu_temperature = True
         self._cpu_temperature_failures = 0
         self._max_cpu_temperature_failures = 3
+
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+
+    @property
+    def history(self) -> List[DataPoint]:
+        return self._history
 
     def start(self) -> None:
         thread = None
@@ -95,7 +92,7 @@ class CPUMetricsCollector(BaseMetricsCollector):
         )
 
     def _collect_loop(self) -> None:
-        self.cpu_collector.prepare_metrics_collection()
+        # self.cpu_collector.prepare_metrics_collection()
 
         while not self._stop_event.is_set():
             # Чтобы из-за одного сбоя не рушился весь сбор метрик, ловим

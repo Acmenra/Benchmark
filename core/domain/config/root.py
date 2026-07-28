@@ -1,3 +1,5 @@
+# core/domain/config/root.py
+
 import logging
 from typing import Any
 from dataclasses import dataclass

@@ -1,5 +1,3 @@
-# infrastructure/model_quantization/calibration.py
-
 import cv2
 import yaml
 import glob
@@ -8,21 +6,14 @@ import numpy as np
 from typing import Any
 from pathlib import Path
 
+from infrastructure.exceptions import CalibrationDataError
 
 logger = logging.getLogger(__name__)
-
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
 
 
-class CalibrationDataError(RuntimeError):
-    """Ошибка подготовки calibration dataset."""
-
-
-def collect_calibration_images(
-    dataset_config_path: Path,
-    max_samples: int = 32,
-) -> list[Path]:
+def collect_calibration_images(dataset_config_path: Path, max_samples: int = 32) -> list[Path]:
     """Найти изображения для INT8-калибровки по Ultralytics data.yaml."""
     dataset_config_path = Path(dataset_config_path)
     if not dataset_config_path.is_file():
@@ -77,11 +68,16 @@ def _resolve_dataset_root(dataset_config_path: Path, raw_root: Any) -> Path:
 
 
 def _resolve_image_paths(
-    dataset_root: Path,
-    dataset_config_path: Path,
-    image_source: Any,
+        dataset_root: Path,
+        dataset_config_path: Path,
+        image_source: Any,
 ) -> list[Path]:
-    """Развернуть путь/список путей из data.yaml в список файлов изображений."""
+    """Развернуть путь/список путей из data.yaml в список файлов изображений.
+
+    Поддерживает "ленивые" пути с ../, которые часто встречаются в датасетах Ultralytics,
+    даже когда data.yaml лежит в корне. Если путь с ../ не найден, автоматически
+    пробуем интерпретировать его как путь от корня датасета.
+    """
     if isinstance(image_source, (list, tuple)):
         paths: list[Path] = []
         for item in image_source:
@@ -90,16 +86,33 @@ def _resolve_image_paths(
 
     source = Path(str(image_source)).expanduser()
     candidates = []
+
     if source.is_absolute():
         candidates.append(source)
     else:
-        candidates.extend(
-            [
-                dataset_root / source,
-                dataset_config_path.parent / source,
-                Path.cwd() / source,
-            ]
-        )
+        # Стандартные кандидаты
+        candidates.extend([
+            dataset_root / source,
+            dataset_config_path.parent / source,
+            Path.cwd() / source,
+        ])
+
+        # ✅ НОВАЯ ЛОГИКА: Если путь начинается с ../, пробуем убрать ../ 
+        # и интерпретировать как путь от корня датасета
+        # Это поддерживает "ленивые" YAML, где ../ используется даже когда data.yaml в корне
+        source_str = str(source)
+        if source_str.startswith("../"):
+            # Убираем все ../ из начала пути
+            cleaned_source = source_str
+            while cleaned_source.startswith("../"):
+                cleaned_source = cleaned_source[3:]
+
+            cleaned_path = Path(cleaned_source)
+            candidates.extend([
+                dataset_root / cleaned_path,
+                dataset_config_path.parent / cleaned_path,
+                Path.cwd() / cleaned_path,
+            ])
 
     for candidate in candidates:
         if candidate.is_dir():
@@ -139,4 +152,3 @@ def _collect_images_from_file(file_path: Path) -> list[Path]:
                 image_paths.append(image_path)
 
     return sorted(image_paths)
-

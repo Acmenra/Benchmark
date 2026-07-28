@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True, frozen=True)
 class SystemInfoConfig(BaseConfig):
     """Конфигурация сбора системной информации во время бенчмарка."""
-    collect_сpu: bool
+    collect_cpu: bool
     collect_gpu: bool
     collect_power: bool
     collect_temperature: bool

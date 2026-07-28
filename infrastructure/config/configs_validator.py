@@ -182,7 +182,7 @@ class _BenchmarkConfigInputSchema(BaseModel):
 
 class _SystemInfoInputSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
+    collect_cpu: bool = False
     collect_gpu: bool = False
     collect_power: bool = False
     collect_temperature: bool = False

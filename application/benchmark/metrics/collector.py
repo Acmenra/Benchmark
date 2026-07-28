@@ -15,19 +15,17 @@ logger = logging.getLogger(__name__)
 class MetricsCollector:
     """Собирает метрики за один benchmark-прогон модели."""
 
-    def __init__(
-        self,
-        benchmark_run: BenchmarkCase,
-        interval_seconds: float = 1.0,
-        cpu_collector: CPUMetricsCollector | None = None,
-        gpu_collector: GPUMetricsCollector | None = None,
-    ) -> None:
+    def __init__(self,
+                 benchmark_case: BenchmarkCase,
+                 cpu_collector: CPUMetricsCollector,
+                 gpu_collector: GPUMetricsCollector,
+                 interval_seconds: float = 1.0) -> None:
         if interval_seconds <= 0:
             raise ValueError("interval_seconds должен быть больше 0")
 
-        self.benchmark_run = benchmark_run
-        self.cpu_collector = cpu_collector or CPUMetricsCollector(interval_seconds=interval_seconds)
-        self.gpu_collector = gpu_collector or GPUMetricsCollector(interval_seconds=interval_seconds)
+        self.benchmark_case = benchmark_case
+        self.cpu_collector = cpu_collector
+        self.gpu_collector = gpu_collector
         self._latency = MetricStatistics(unit="millisecond")
         self._mark_started_at: float | None = None
 
@@ -65,9 +63,7 @@ class MetricsCollector:
 
     def get(self) -> BenchmarkResult:
         """Возвращает итоговый результат прогона."""
-        return BenchmarkResult(
-            case=self.benchmark_run,
-            performance=LatencyStats.from_history(self._latency.history),
-            cpu=self.cpu_collector.get(),
-            gpu=self.gpu_collector.get(),
-        )
+        return BenchmarkResult(case=self.benchmark_case,
+                               performance=LatencyStats.from_history(self._latency.history),
+                               cpu=self.cpu_collector.get(),
+                               gpu=self.gpu_collector.get())
