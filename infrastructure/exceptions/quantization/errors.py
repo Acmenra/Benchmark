@@ -7,6 +7,14 @@ class CalibrationDataError(ModelError):
     """Ошибка подготовки calibration dataset."""
     pass
 
+class NCNNQuantizationError(ModelError):
+    """Ошибка INT8-квантования ONNX-модели."""
+    pass
+
+
+class TensorRTQuantizationError(ModelError):
+    """Ошибка INT8-квантования ONNX-модели."""
+    pass
 
 class ONNXQuantizationError(ModelError):
     """Ошибка INT8-квантования ONNX-модели."""
@@ -16,6 +24,14 @@ class ONNXQuantizationError(ModelError):
 class OpenVINOQuantizationError(ModelError):
     """Ошибка квантования OpenVINO-модели."""
     pass
+
+
+class PyTorchQuantizationError(ModelError):
+    """Ошибка квантования PyTorch модели."""
+
+
+class TensorRTQuantizationError(ModelError):
+    """Ошибка квантования TensorRT модели."""
 
 
 class ModelExportError(ModelError):

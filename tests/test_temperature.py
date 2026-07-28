@@ -3,7 +3,7 @@
 import logging
 import pytest
 
-from infrastructure.hardware.collectors.temperature import (
+from infrastructure.hardware.collectors.tmp.collector import (
     collect_temperature,
     _is_valid_temperature,
     _check_cpu_temperature_available,

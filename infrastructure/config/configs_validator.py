@@ -86,6 +86,7 @@ class _BenchmarkConfigInputSchema(BaseModel):
     test_images: str | None = None
     task_type: str | None = None
     device_type: str | None = None
+    devices: list[str] | None = None
 
     @field_validator("task_type")
     @classmethod
@@ -133,7 +134,26 @@ class _BenchmarkConfigInputSchema(BaseModel):
         except ValueError as exc:
             raise ValueError(f"device_type must be a valid device string, got {value}") from exc
         return normalized
-    
+
+    @field_validator("devices")
+    @classmethod
+    def validate_devices(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if not value:
+            raise ValueError("devices must be a non-empty list")
+
+        normalized = [item.strip().lower() for item in value]
+        valid_values = {item.value for item in DeviceType}
+        invalid_values = [item for item in normalized if item not in valid_values]
+
+        if invalid_values:
+            raise ValueError(
+                f"devices must contain valid values {sorted(valid_values)}, "
+                f"got {invalid_values}"
+            )
+        return normalized
+
     @field_validator("formats")
     @classmethod
     def validate_formats(cls, value: list[str]) -> list[str]:

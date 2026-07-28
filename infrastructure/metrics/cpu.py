@@ -9,7 +9,7 @@ from core.domain.metrics import MetricStatistics, CPUMetrics, DataPoint
 
 from infrastructure.hardware.collectors.cpu.collector import CPUCollector
 from infrastructure.hardware.collectors.pwr.power import collect_cpu_power_watts
-from infrastructure.hardware.collectors.temperature import collect_cpu_temperature_celsius
+from infrastructure.hardware.collectors.tmp.collector import collect_cpu_temperature_celsius
 
 from application.benchmark.metrics import BaseMetricsCollector
 

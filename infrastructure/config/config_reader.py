@@ -41,6 +41,12 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
         if benchmark_data.device_type is not None
         else None
     )
+
+    if benchmark_data.devices:
+        payload["devices"] = tuple(DeviceType(dev) for dev in benchmark_data.devices)
+    else:
+        payload["devices"] = None
+
     return BenchmarkConfig(**payload)
 
 

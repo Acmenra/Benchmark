@@ -184,3 +184,5 @@ class ModelBenchmarkResult:
     cpu: CPUMetrics | None = None
     gpu: GPUMetrics | None = None
     quality: QualityMetrics | None = None
+
+

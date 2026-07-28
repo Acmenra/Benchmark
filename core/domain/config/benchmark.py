@@ -1,7 +1,7 @@
 # core/domain/config/benchmark.py
 
 import logging
-from typing import Any
+from typing import Any, Optional, List
 from dataclasses import dataclass
 
 from core.domain.config.base import BaseConfig
@@ -29,13 +29,12 @@ class BenchmarkCase(BaseConfig):
 @dataclass(slots=True, frozen=True)
 class BenchmarkConfig(BaseConfig):
     """Глобальная конфигурация бенчмарка, содержащая сценарии и общие параметры."""
-    # Примечание: поле оставлено 'runs' для совместимости с YAML-конфигом,
-    # но тип изменен на BenchmarkCase
     runs: tuple[BenchmarkCase, ...]
     formats: tuple[str, ...] = ()
     quantization: tuple[str, ...] = ()
     task_type: TaskType | None = None
     device_type: DeviceType | None = None
+    devices: tuple[DeviceType, ...] | None = None
     input_size: int | None = None
     batch_size: int | None = None
     warmup_iterations: int | None = None

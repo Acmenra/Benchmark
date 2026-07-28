@@ -1,4 +1,4 @@
-# infrastructure/hardware/collectors/temperature.py
+# infrastructure/hardware/collectors/collector.py
 
 import os
 import re

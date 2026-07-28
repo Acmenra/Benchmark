@@ -1,14 +1,13 @@
 import logging
 import socket
 
-from core.domain.hardware.enums import PlatformType
 from core.domain.config.system import SystemInfoConfig
 from core.domain.system.system import SystemInfo
 from infrastructure.hardware.collectors.cpu.collector import CPUCollector
 from infrastructure.hardware.collectors.gpu.collector import GPUCollector
 from infrastructure.hardware.collectors.ram.collector import RAMCollector  # <-- ДОБАВИЛИ
 from infrastructure.hardware.collectors.operating_system import OSCollector
-from infrastructure.hardware.collectors.temperature import collect_temperature
+from infrastructure.hardware.collectors.tmp.collector import collect_temperature
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +16,10 @@ class HardwareCollector:
     """Сборщик статической информации об аппаратном окружении системы."""
 
     def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
-        self.system_info_config = system_info_config or SystemInfoConfig(
-            collect_cpu=True, collect_gpu=True, collect_power=False, collect_temperature=False
+        self.system_info_config = system_info_config or SystemInfoConfig(collect_cpu=True,
+                                                                         collect_gpu=True,
+                                                                         collect_power=False,
+                                                                         collect_temperature=False
         )
         self.cpu_collector = CPUCollector(self.system_info_config)
         self.gpu_collector = GPUCollector(self.system_info_config)
@@ -35,14 +36,12 @@ class HardwareCollector:
         if self.system_info_config.collect_temperature:
             temp_capabilities = collect_temperature()
 
-        return SystemInfo(
-            platform=self.gpu_collector._detect_platform(),
-            device_name=socket.gethostname(),
-            cpu=cpu_info,
-            gpu=gpu_info,
-            ram=ram_info,
-            npu=None,
-            tpu=None,
-            os=os_info,
-            temperature=temp_capabilities,
-        )
+        return SystemInfo(platform=self.gpu_collector._detect_platform(),
+                          device_name=socket.gethostname(),
+                          cpu=cpu_info,
+                          gpu=gpu_info,
+                          npu=None,
+                          tpu=None,
+                          ram=ram_info,
+                          os=os_info,
+                          temperature=temp_capabilities)

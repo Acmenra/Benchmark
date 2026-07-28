@@ -123,7 +123,6 @@ def main() -> None:
     if config.system_info and system_info:
         reporter.report(system_info)
 
-    quit()
     # Запуск бенчмарка
     if config.benchmark:
         runner = BenchmarkRunner(benchmark_config=config.benchmark,

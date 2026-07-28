@@ -4,6 +4,7 @@ import shutil
 import logging
 from pathlib import Path
 
+from infrastructure.exceptions import OpenVINOQuantizationError
 from infrastructure.model_quantization.calibration import (
     collect_calibration_images,
     preprocess_yolo_image,
@@ -12,10 +13,6 @@ from infrastructure.model_quantization.yolo_export import export_yolo_model
 
 
 logger = logging.getLogger(__name__)
-
-
-class OpenVINOQuantizationError(RuntimeError):
-    """Ошибка квантования OpenVINO-модели."""
 
 
 class OpenVINOFP16Quantizer:

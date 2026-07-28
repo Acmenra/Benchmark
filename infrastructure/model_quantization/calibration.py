@@ -8,7 +8,9 @@ from pathlib import Path
 
 from infrastructure.exceptions import CalibrationDataError
 
+
 logger = logging.getLogger(__name__)
+
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
 
