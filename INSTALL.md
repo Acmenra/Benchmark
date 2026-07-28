@@ -67,7 +67,7 @@ pip install -e ".[onnx,openvino,gpu,cpu-info,huggingface,viz,html]"
 
 Каждая зависимость импортируется через `try/except` — без неё
 соответствующий формат/метрика просто пропускается с WARNING в логе, а не
-роняет процесс (graceful degradation, см. ARCHITECTURE.md).
+роняет процесс (graceful degradation, см. README.md).
 
 ### TensorRT (только NVIDIA GPU/Jetson)
 
