@@ -77,6 +77,7 @@ class _BenchmarkConfigInputSchema(BaseModel):
 
     runs: list[_BenchmarkRunInputSchema] = Field(default_factory=list)
     models_dir: str | None = None
+    run_validation: bool = True
     formats: list[str] = Field(default_factory=list)
     quantization: list[str] = Field(default_factory=list)
     input_size: int | None = None

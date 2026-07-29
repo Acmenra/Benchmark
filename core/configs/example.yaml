@@ -1,26 +1,23 @@
 benchmark:
   models_dir: "./models"
+  run_validation: false
 
   runs:
-    # YOLOv8 - самое популярное семейство
     - models:
         - family: yolov8
           sizes: [n, s, m, l, x]
 
-    # YOLOv11 - новейшее семейство от Ultralytics
     - models:
         - family: yolo11
           sizes: [n, s, m, l, x]
 
-    # YOLOv10 - оптимизировано для скорости
     - models:
         - family: yolov10
           sizes: [n, s, m, l, x]
 
-    # YOLO26 - уже работает
     - models:
         - family: yolo26
-          sizes: [n, s, m, l]
+          sizes: [n, s, m, l, x]
 
   formats:
     - pytorch

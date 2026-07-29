@@ -32,6 +32,7 @@ class BenchmarkConfig(BaseConfig):
     """Глобальная конфигурация бенчмарка, содержащая сценарии и общие параметры."""
     runs: tuple[BenchmarkCase, ...]
     models_dir: Path
+    run_validation: bool = True
     formats: tuple[str, ...] = ()
     quantization: tuple[str, ...] = ()
     task_type: TaskType | None = None

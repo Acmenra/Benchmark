@@ -47,6 +47,8 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
     else:
         payload["models_dir"] = Path("./models_dir").resolve()
 
+    payload["run_validation"] = benchmark_data.run_validation
+
     return BenchmarkConfig(**payload)
 
 

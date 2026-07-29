@@ -172,7 +172,10 @@ class BenchmarkRunner:
                         raw_result = self._safe_get_collector_result(collector)
 
                         try:
-                            quality_metrics = self._collect_quality_metrics(model, family, size)
+                            if self.benchmark_config.run_validation:
+                                quality_metrics = self._collect_quality_metrics(model, family, size)
+                            else:
+                                quality_metrics = None
                         except Exception as error:
                             logger.warning("Не удалось собрать метрики качества для %s%s/%s/%s: %s", family, size,
                                            format_, quantization, error)
