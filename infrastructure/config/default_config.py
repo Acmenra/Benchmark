@@ -31,10 +31,11 @@ def build_default_config() -> Config:
     return Config(
         benchmark=BenchmarkConfig(
             runs=(BenchmarkCase(models=models),),
+            devices=(DeviceType.AUTO,),
+            models_dir=Path("./models"),
             formats=tuple(model_format.value for model_format in ModelFormat),
             quantization=(QuantizationLevel.FP32.value,),
             task_type=TaskType.DETECT,
-            device_type=DeviceType.AUTO,
             input_size=640,
             batch_size=1,
             warmup_iterations=10,

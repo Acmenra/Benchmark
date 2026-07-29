@@ -8,9 +8,10 @@ import numpy as np
 from pathlib import Path
 from ultralytics import YOLO
 from typing import Generator
-from dataclasses import dataclass
 
-from acmenra_cv import YOLOBackend, Backend
+from acmenra_cv import Backend, YOLOBackend
+
+from core.domain.artifact import ResolvedModelArtifact
 from core.enums.model import DeviceType
 
 from core.domain.config import BenchmarkConfig, BenchmarkCase, SystemInfoConfig
@@ -45,13 +46,6 @@ from infrastructure.model_quantization.yolo_export import ModelExportError, ensu
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True, frozen=True)
-class ResolvedModelArtifact:
-    """Фактически выбранный артефакт модели."""
-    path: Path
-    quantization: str
 
 
 class BenchmarkRunner:
@@ -117,7 +111,6 @@ class BenchmarkRunner:
                 for format_ in self._get_supported_formats():
                     for quantization in self._get_quantization_levels():
 
-                        # ЕСЛИ УСТРОЙСТВО НЕДОСТУПНО, СРАЗУ ПИШЕМ SKIPPED В ОТЧЕТ И ИДЕМ ДАЛЬШЕ
                         if normalized_device is None:
                             yield self._build_status_result(
                                 family=family, size=size, format_=format_,
@@ -127,7 +120,6 @@ class BenchmarkRunner:
                             )
                             continue
 
-                        # ДАЛЕЕ ИДЕТ ОБЫЧНАЯ ЛОГИКА ТОЛЬКО ДЛЯ ДОСТУПНЫХ УСТРОЙСТВ
                         artifact = self.resolve_model_artifact(family, size, format_, quantization)
 
                         if artifact is None:
@@ -146,7 +138,7 @@ class BenchmarkRunner:
                             gpu_collector=GPUMetricsCollector(interval_seconds=0.1, gpu_collector=self.gpu),
                         )
 
-                        model: YOLOBackend | None = None
+                        model: Backend | None = None
                         run_failed = False
                         try:
                             model = self._build_yolo_backend(artifact.path, artifact.quantization,
@@ -227,7 +219,7 @@ class BenchmarkRunner:
             logger.warning("Не удалось получить метрики benchmark-прогона: %s", error)
             return type("FallbackBenchmarkResult", (), {"performance": None, "cpu": None, "gpu": None})()
 
-    def _finalize_run(self, collector: MetricsCollector, model: YOLOBackend | None) -> None:
+    def _finalize_run(self, collector: MetricsCollector, model: Backend | None) -> None:
         try:
             collector.stop_run()
         except Exception as error:
@@ -558,8 +550,8 @@ class BenchmarkRunner:
             return QuantizationLevel.FP32.value
 
     def _build_yolo_backend(self, model_path: Path, quantization: str = QuantizationLevel.FP32.value,
-                            override_device: DeviceType | None = None) -> YOLOBackend:
-        # Двойная нормализация гарантирует, что в YOLOBackend попадет ТОЛЬКО Enum DeviceType
+                            override_device: DeviceType | None = None) -> Backend:
+        # Двойная нормализация гарантирует, что в Backend попадет ТОЛЬКО Enum DeviceType
         target_device = override_device or self.benchmark_config.device_type
         device = self._normalize_device(target_device)
 
@@ -623,7 +615,7 @@ class BenchmarkRunner:
         logger.warning(f"⚠️ Неизвестное устройство '{device_str}'. Тест будет пропущен.")
         return None
 
-    def _cleanup_model_resources(self, model: YOLOBackend | None) -> None:
+    def _cleanup_model_resources(self, model: Backend | None) -> None:
         if model is None:
             return
         raw_model = getattr(model, "model", None)
@@ -673,7 +665,7 @@ class BenchmarkRunner:
         except Exception as error:
             logger.debug("Не удалось закрыть окна OpenCV: %s", error)
 
-    def _collect_quality_metrics(self, model: YOLOBackend, family: str, size: str) -> QualityMetrics | None:
+    def _collect_quality_metrics(self, model: Backend, family: str, size: str) -> QualityMetrics | None:
         try:
             dataset_config_path = self._find_quality_dataset_config()
             if dataset_config_path is None:
