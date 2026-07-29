@@ -76,6 +76,7 @@ class _BenchmarkConfigInputSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     runs: list[_BenchmarkRunInputSchema] = Field(default_factory=list)
+    models_dir: str | None = None
     formats: list[str] = Field(default_factory=list)
     quantization: list[str] = Field(default_factory=list)
     input_size: int | None = None
@@ -85,7 +86,6 @@ class _BenchmarkConfigInputSchema(BaseModel):
     confidence_threshold: float | None = None
     test_images: str | None = None
     task_type: str | None = None
-    device_type: str | None = None
     devices: list[str] | None = None
 
     @field_validator("task_type")
@@ -111,28 +111,6 @@ class _BenchmarkConfigInputSchema(BaseModel):
             raise ValueError(
                 f"task_type must contain valid values {valid_values}, got {value}"
             ) from exc
-        return normalized
-
-    @field_validator("device_type")
-    @classmethod
-    def validate_device_type(cls, value: str | DeviceType | None) -> str | None:
-        if value is None:
-            return None
-
-        if isinstance(value, DeviceType):
-            return value.value.lower()
-
-        if not isinstance(value, str):
-            raise ValueError("device_type must be a non-empty string")
-
-        normalized = value.strip().lower()
-        if not normalized:
-            raise ValueError("device_type must be a non-empty string")
-
-        try:
-            DeviceType(normalized)
-        except ValueError as exc:
-            raise ValueError(f"device_type must be a valid device string, got {value}") from exc
         return normalized
 
     @field_validator("devices")

@@ -11,6 +11,7 @@ from typing import Generator
 from dataclasses import dataclass
 
 from acmenra_cv import YOLOBackend, Backend
+from core.enums.model import DeviceType
 
 from core.domain.config import BenchmarkConfig, BenchmarkCase, SystemInfoConfig
 from application.benchmark.metrics.collector import MetricsCollector
@@ -18,7 +19,6 @@ from core.domain.metrics import ModelBenchmarkResult, LatencyStats, CPUMetrics, 
 
 from core.enums.model import (
     Coco,
-    DeviceType,
     QuantizationLevel,
     TaskType,
     export_extension,
@@ -31,17 +31,18 @@ from infrastructure.exceptions.quantization.errors import (
 )
 from infrastructure.hardware.collectors.cpu import CPUCollector
 from infrastructure.hardware.collectors.gpu import GPUCollector
+from infrastructure.hardware.collectors.ram import RAMCollector
 from infrastructure.metrics.cpu import CPUMetricsCollector
 from infrastructure.metrics.gpu import GPUMetricsCollector
 from infrastructure.metrics.quality import YOLOQualityMetricsCollector
 
-# --- ИМПОРТЫ ДЛЯ КВАНТОВАНИЯ ---
 from infrastructure.model_quantization.onnx import ONNXINT8Quantizer
 from infrastructure.model_quantization.openvino import OpenVINOFP16Quantizer, OpenVINOINT8Quantizer
 from infrastructure.model_quantization.pytorch import PyTorchINT8Quantizer
 from infrastructure.model_quantization.tensorrt import TensorRTFP16Quantizer, TensorRTINT8Quantizer
 from infrastructure.model_quantization.ncnn import NCNNFP32Exporter, NCNNINT8Quantizer
 from infrastructure.model_quantization.yolo_export import ModelExportError, ensure_yolo_pt_model, export_yolo_model
+
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,14 @@ class BenchmarkRunner:
 
     def __init__(self, benchmark_config: BenchmarkConfig, system_info_config: SystemInfoConfig | None = None) -> None:
         self.benchmark_config = benchmark_config
+
+        self.models_dir = benchmark_config.models_dir
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+
         safe_config = system_info_config or SystemInfoConfig(collect_cpu=True, collect_gpu=True)
         self.cpu = CPUCollector(system_info_config=safe_config)
         self.gpu = GPUCollector(system_info_config=safe_config)
+        self.ram = RAMCollector(system_info_config=safe_config)
 
     def run_suite(self) -> Generator[ModelBenchmarkResult, None, None]:
         """Запустить все benchmark-кейсы и возвращать результаты по мере готовности."""
@@ -83,10 +89,11 @@ class BenchmarkRunner:
             data_source = [np.zeros((input_size, input_size, 3), dtype=np.uint8) for _ in range(main_iterations)]
             is_synthetic = True
 
-        # 2. ПОЛУЧЕНИЕ СПИСКА УСТРОЙСТВ (с фоллбеком на старое поле device_type для совместимости)
+        # 2. ПОЛУЧЕНИЕ СПИСКА УСТРОЙСТВ
         devices_to_test = getattr(self.benchmark_config, 'devices', None)
         if not devices_to_test:
-            devices_to_test = [self.benchmark_config.device_type or DeviceType.CPU]
+            fallback = self.benchmark_config.device_type or DeviceType.CPU
+            devices_to_test = [fallback]
 
         for model_config in case.models:
             family = model_config.family
@@ -94,19 +101,41 @@ class BenchmarkRunner:
 
             # 3. ЦИКЛ ПО УСТРОЙСТВАМ
             for device in devices_to_test:
+                # Нормализуем устройство. Если оно недоступно, вернется None
                 normalized_device = self._normalize_device(device)
-                logger.info(f"--- Запуск бенчмарка на устройстве: {normalized_device.value.upper()} ---")
+
+                # Определяем имя устройства для записи в CSV (даже если оно недоступно)
+                device_name_for_csv = str(device).lower() if isinstance(device, str) else getattr(device, 'value',
+                                                                                                  str(device)).lower()
+
+                if normalized_device is None:
+                    logger.warning(
+                        f"⚠️ Устройство '{device}' недоступно или не распознано. Все тесты для него будут помечены как skipped.")
+                else:
+                    logger.info(f"--- Запуск бенчмарка на устройстве: {device_name_for_csv.upper()} ---")
 
                 for format_ in self._get_supported_formats():
                     for quantization in self._get_quantization_levels():
+
+                        # ЕСЛИ УСТРОЙСТВО НЕДОСТУПНО, СРАЗУ ПИШЕМ SKIPPED В ОТЧЕТ И ИДЕМ ДАЛЬШЕ
+                        if normalized_device is None:
+                            yield self._build_status_result(
+                                family=family, size=size, format_=format_,
+                                actual_quantization=quantization, status="skipped",
+                                error=f"Устройство '{device}' недоступно на этой системе",
+                                device=device_name_for_csv
+                            )
+                            continue
+
+                        # ДАЛЕЕ ИДЕТ ОБЫЧНАЯ ЛОГИКА ТОЛЬКО ДЛЯ ДОСТУПНЫХ УСТРОЙСТВ
                         artifact = self.resolve_model_artifact(family, size, format_, quantization)
 
                         if artifact is None:
                             yield self._build_status_result(
                                 family=family, size=size, format_=format_,
-                                actual_quantization=None, status="skipped",
+                                actual_quantization=quantization, status="skipped",
                                 error="Модель не подготовлена: формат или квантование не поддержаны текущим pipeline",
-                                device=normalized_device.value
+                                device=device_name_for_csv
                             )
                             continue
 
@@ -120,13 +149,14 @@ class BenchmarkRunner:
                         model: YOLOBackend | None = None
                         run_failed = False
                         try:
-                            # Передаем normalized_device в бэкенд
-                            model = self._build_yolo_backend(artifact.path, artifact.quantization, override_device=normalized_device)
+                            model = self._build_yolo_backend(artifact.path, artifact.quantization,
+                                                             override_device=normalized_device)
                             self._warmup(model)
                             collector.start_run()
                             self._run_model_on_data(model, data_source, collector, is_synthetic)
                         except Exception as error:
-                            logger.exception("Ошибка benchmark-прогона %s%s/%s/%s на %s", family, size, format_, quantization, normalized_device.value)
+                            logger.exception("Ошибка benchmark-прогона %s%s/%s/%s на %s", family, size, format_,
+                                             quantization, device_name_for_csv)
                             run_failed = True
                             raw_result = self._safe_get_collector_result(collector)
                             yield self._build_status_result(
@@ -134,7 +164,7 @@ class BenchmarkRunner:
                                 actual_quantization=artifact.quantization, status="failed",
                                 error=str(error), performance=raw_result.performance,
                                 cpu=raw_result.cpu, gpu=raw_result.gpu,
-                                device=normalized_device.value
+                                device=device_name_for_csv
                             )
                             self._finalize_run(collector, model)
                             continue
@@ -144,7 +174,8 @@ class BenchmarkRunner:
                         try:
                             quality_metrics = self._collect_quality_metrics(model, family, size)
                         except Exception as error:
-                            logger.warning("Не удалось собрать метрики качества для %s%s/%s/%s: %s", family, size, format_, quantization, error)
+                            logger.warning("Не удалось собрать метрики качества для %s%s/%s/%s: %s", family, size,
+                                           format_, quantization, error)
                             quality_metrics = None
                         finally:
                             self._finalize_run(collector, model)
@@ -153,7 +184,7 @@ class BenchmarkRunner:
                             model={
                                 "family": family,
                                 "size": size,
-                                "device": normalized_device.value, # <-- ДОБАВЛЕНО В ОТЧЕТ
+                                "device": device_name_for_csv,
                                 "task_type": self._get_task_type().value,
                                 "format": format_,
                                 "quantization": artifact.quantization,
@@ -165,9 +196,16 @@ class BenchmarkRunner:
                             quality=quality_metrics,
                         )
 
-    def _build_status_result(self, family: str, size: str, format_: str, actual_quantization: str | None, status: str,
-                             error: str | None, performance: LatencyStats | None = None, cpu: CPUMetrics | None = None,
-                             gpu: GPUMetrics | None = None, device: str = "unknown") -> ModelBenchmarkResult:
+    def _build_status_result(self,
+                             family: str,
+                             size: str,
+                             format_: str,
+                             actual_quantization: str | None,
+                             status: str,
+                             error: str | None, performance: LatencyStats | None = None,
+                             cpu: CPUMetrics | None = None,
+                             gpu: GPUMetrics | None = None,
+                             device: str = "unknown") -> ModelBenchmarkResult:
         return ModelBenchmarkResult(
             model={"family": family, "size": size, "device": device, "task_type": self._get_task_type().value,
                    "format": format_, "quantization": actual_quantization},
@@ -204,10 +242,12 @@ class BenchmarkRunner:
             return None
         dataset_path = Path(path_str)
         if dataset_path.suffix.lower() in (".yaml", ".yml"):
-            logger.warning(f"В test_images указан YAML-файл ({dataset_path.name}), а не папка с данными. Переключаюсь на синтетические данные.")
+            logger.warning(
+                f"В test_images указан YAML-файл ({dataset_path.name}), а не папка с данными. Переключаюсь на синтетические данные.")
             return None
         if not dataset_path.is_dir():
-            logger.warning(f"Путь '{dataset_path}' не найден или не является директорией. Переключаюсь на синтетические данные.")
+            logger.warning(
+                f"Путь '{dataset_path}' не найден или не является директорией. Переключаюсь на синтетические данные.")
             return None
         if (dataset_path / "images").is_dir():
             return dataset_path / "images"
@@ -263,14 +303,15 @@ class BenchmarkRunner:
         artifact = self.resolve_model_artifact(family, size, format_, quantization)
         return artifact.path if artifact is not None else None
 
-    def _try_resolve_model_artifact(self, family: str, size: str, format_: str, quantization: str) -> ResolvedModelArtifact | None:
+    def _try_resolve_model_artifact(self, family: str, size: str, format_: str,
+                                    quantization: str) -> ResolvedModelArtifact | None:
         """Возвращает путь к модели нужного формата."""
         quantization = self._normalize_quantization(quantization)
         if not self._is_quantization_supported(format_, quantization):
             return None
 
         model_stem = self._build_model_stem(family, size)
-        pt_path = Path(f"{model_stem}.pt")
+        pt_path = self.models_dir / f"{model_stem}.pt"
 
         # 1. PyTorch
         if format_ == "pytorch":
@@ -305,7 +346,8 @@ class BenchmarkRunner:
 
         # 3. OpenVINO FP16
         if format_ == "openvino" and quantization == QuantizationLevel.FP16.value:
-            fp16_artifact = self._prepare_openvino_fp16_artifact(pt_path=pt_path, family=family, size=size, extension=extension)
+            fp16_artifact = self._prepare_openvino_fp16_artifact(pt_path=pt_path, family=family, size=size,
+                                                                 extension=extension)
             if fp16_artifact is None: return None
             return ResolvedModelArtifact(path=fp16_artifact, quantization=quantization)
 
@@ -353,11 +395,12 @@ class BenchmarkRunner:
 
         # 8. ONNX и OpenVINO INT8
         if quantization == QuantizationLevel.INT8.value and format_ in ("onnx", "openvino"):
-            int8_artifact = self._prepare_int8_artifact(pt_path=pt_path, family=family, size=size, format_=format_, extension=extension)
+            int8_artifact = self._prepare_int8_artifact(pt_path=pt_path, family=family, size=size, format_=format_,
+                                                        extension=extension)
             if int8_artifact is None: return None
             return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
 
-        # 9. Стандартный экспорт (например, ONNX FP32/FP16)
+        # 9. Стандартный экспорт
         export_kwargs = self._build_export_kwargs(export_format, quantization)
         if export_kwargs is None:
             return None
@@ -386,7 +429,9 @@ class BenchmarkRunner:
             logger.warning("PyTorch INT8 требует data.yaml, датасет не найден")
             return None
         try:
-            return PyTorchINT8Quantizer().quantize(pt_path=pt_path, int8_pt_path=int8_path, dataset_config_path=dataset_config_path, input_size=self.benchmark_config.input_size or 640)
+            return PyTorchINT8Quantizer().quantize(pt_path=pt_path, int8_pt_path=int8_path,
+                                                   dataset_config_path=dataset_config_path,
+                                                   input_size=self.benchmark_config.input_size or 640)
         except (PyTorchQuantizationError, Exception) as error:
             logger.warning("Не удалось подготовить PyTorch INT8 артефакт для %s%s: %s", family, size, error)
             return None
@@ -406,7 +451,9 @@ class BenchmarkRunner:
             logger.warning("TensorRT INT8 требует data.yaml, датасет не найден")
             return None
         try:
-            return TensorRTINT8Quantizer().quantize(pt_path=pt_path, int8_engine_path=int8_path, dataset_config_path=dataset_config_path, input_size=self.benchmark_config.input_size or 640)
+            return TensorRTINT8Quantizer().quantize(pt_path=pt_path, int8_engine_path=int8_path,
+                                                    dataset_config_path=dataset_config_path,
+                                                    input_size=self.benchmark_config.input_size or 640)
         except (TensorRTQuantizationError, Exception) as error:
             logger.warning("Не удалось подготовить TensorRT INT8 артефакт для %s%s: %s", family, size, error)
             return None
@@ -415,12 +462,14 @@ class BenchmarkRunner:
         fp32_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP32.value)
         fp16_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP16.value)
         try:
-            return OpenVINOFP16Quantizer().quantize(pt_path=pt_path, fp32_openvino_path=fp32_path, fp16_openvino_path=fp16_path)
+            return OpenVINOFP16Quantizer().quantize(pt_path=pt_path, fp32_openvino_path=fp32_path,
+                                                    fp16_openvino_path=fp16_path)
         except (OpenVINOQuantizationError, ModelExportError, Exception) as error:
             logger.warning("Не удалось подготовить FP16 OpenVINO артефакт для %s%s: %s", family, size, error)
             return None
 
-    def _prepare_int8_artifact(self, pt_path: Path, family: str, size: str, format_: str, extension: str) -> Path | None:
+    def _prepare_int8_artifact(self, pt_path: Path, family: str, size: str, format_: str,
+                               extension: str) -> Path | None:
         dataset_config_path = self._find_quality_dataset_config()
         if dataset_config_path is None:
             logger.warning("INT8 требует data.yaml для калибровки, датасет не найден")
@@ -430,9 +479,12 @@ class BenchmarkRunner:
         int8_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.INT8.value)
         try:
             if format_ == "onnx":
-                return ONNXINT8Quantizer().quantize(pt_path=pt_path, fp32_onnx_path=fp32_path, int8_onnx_path=int8_path, dataset_config_path=dataset_config_path, input_size=input_size)
+                return ONNXINT8Quantizer().quantize(pt_path=pt_path, fp32_onnx_path=fp32_path, int8_onnx_path=int8_path,
+                                                    dataset_config_path=dataset_config_path, input_size=input_size)
             if format_ == "openvino":
-                return OpenVINOINT8Quantizer().quantize(pt_path=pt_path, fp32_openvino_path=fp32_path, int8_openvino_path=int8_path, dataset_config_path=dataset_config_path, input_size=input_size)
+                return OpenVINOINT8Quantizer().quantize(pt_path=pt_path, fp32_openvino_path=fp32_path,
+                                                        int8_openvino_path=int8_path,
+                                                        dataset_config_path=dataset_config_path, input_size=input_size)
         except (ONNXQuantizationError, OpenVINOQuantizationError, ModelExportError, Exception) as error:
             logger.warning("Не удалось подготовить INT8 артефакт для %s%s/%s: %s", family, size, format_, error)
             return None
@@ -455,7 +507,8 @@ class BenchmarkRunner:
         }
         supported_formats = supported_formats_by_quantization.get(quantization, set())
         if format_ not in supported_formats:
-            logger.warning("Квантование %s для формата %s сейчас не поддержано, кейс будет пропущен", quantization, format_)
+            logger.warning("Квантование %s для формата %s сейчас не поддержано, кейс будет пропущен", quantization,
+                           format_)
             return False
         return True
 
@@ -466,14 +519,15 @@ class BenchmarkRunner:
     def _build_cached_artifact_path(self, family: str, size: str, extension: str, quantization: str) -> Path:
         model_stem = self._build_model_stem(family, size)
         if quantization == QuantizationLevel.FP32.value:
-            return Path(f"{model_stem}{extension}")
-        return Path(f"{model_stem}_{quantization}{extension}")
+            return self.models_dir / f"{model_stem}{extension}"
+        return self.models_dir / f"{model_stem}_{quantization}{extension}"
 
     def _build_model_stem(self, family: str, size: str) -> str:
         return f"{family}{size}{self._get_task_model_suffix()}"
 
     def _get_task_model_suffix(self) -> str:
-        suffixes_by_task = {TaskType.SEGMENT.value: "-seg", TaskType.POSE.value: "-pose", TaskType.CLASSIFY.value: "-cls", TaskType.OBB.value: "-obb"}
+        suffixes_by_task = {TaskType.SEGMENT.value: "-seg", TaskType.POSE.value: "-pose",
+                            TaskType.CLASSIFY.value: "-cls", TaskType.OBB.value: "-obb"}
         return suffixes_by_task.get(self._get_task_type().value, "")
 
     def _build_export_kwargs(self, export_format: str, quantization: str) -> dict[str, object] | None:
@@ -500,29 +554,71 @@ class BenchmarkRunner:
             logger.warning("Неизвестный уровень квантования %s, используется fp32", quantization)
             return QuantizationLevel.FP32.value
 
-    def _build_yolo_backend(self, model_path: Path, quantization: str = QuantizationLevel.FP32.value, override_device: DeviceType | None = None) -> YOLOBackend:
+    def _build_yolo_backend(self, model_path: Path, quantization: str = QuantizationLevel.FP32.value,
+                            override_device: DeviceType | None = None) -> YOLOBackend:
+        # Двойная нормализация гарантирует, что в YOLOBackend попадет ТОЛЬКО Enum DeviceType
         target_device = override_device or self.benchmark_config.device_type
         device = self._normalize_device(target_device)
-        task_type = self._get_task_type()
-        return YOLOBackend(model=YOLO(str(model_path), task=task_type.value),
-                           device=device,
-                           category=Coco,
-                           task_type=task_type,
-                           threshold=self.benchmark_config.confidence_threshold or 0.25,
-                           iou=0.7,
-                           imgsz=self.benchmark_config.input_size or 640,
-                           half=quantization == QuantizationLevel.FP16.value)
 
-    def _normalize_device(self, device_type: DeviceType | None) -> DeviceType:
+        # Если по какой-то причине device стал None, форсируем CPU, чтобы не упасть
+        if device is None:
+            device = DeviceType.CPU
+
+        task_type = self._get_task_type()
+        return YOLOBackend(
+            model=YOLO(str(model_path), task=task_type.value),
+            device=device,  # acmenra_cv строго требует DeviceType Enum
+            category=Coco,
+            task_type=task_type,
+            threshold=self.benchmark_config.confidence_threshold or 0.25,
+            iou=0.7,
+            imgsz=self.benchmark_config.input_size or 640,
+            half=quantization == QuantizationLevel.FP16.value,
+        )
+
+    def _normalize_device(self, device_type: DeviceType | str | None) -> DeviceType | None:
+        """
+        Пуленепробиваемая нормализация устройства.
+        Возвращает DeviceType Enum, если устройство доступно.
+        Возвращает None, если запрошенное устройство физически отсутствует.
+        """
         if device_type is None:
             return DeviceType.CPU
-        device_str = device_type.value
+
+        # Если пришел сам Enum, берем его строковое значение
+        if isinstance(device_type, DeviceType):
+            device_str = device_type.value.lower()
+        else:
+            device_str = str(device_type).strip().lower()
+
         if device_str == 'auto':
-            normalized = 'cuda' if torch.cuda.is_available() else 'cpu'
-            return DeviceType(normalized)
+            if torch.cuda.is_available():
+                return DeviceType.CUDA
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return DeviceType.MPS
+            return DeviceType.CPU
+
+        if device_str == 'cuda':
+            if torch.cuda.is_available():
+                return DeviceType.CUDA
+            logger.warning("⚠️ Запрошено устройство 'cuda', но CUDA не доступна на этой системе. Тест будет пропущен.")
+            return None
+
+        if device_str in ('mps', 'metal'):
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return DeviceType.MPS
+            logger.warning("⚠️ Запрошено устройство 'mps', но MPS не доступен на этой системе. Тест будет пропущен.")
+            return None
+
         if device_str in ('npu', 'gpu', 'tpu', 'tensorrt', 'npu:rk3588', 'npu:intel', 'npu:hailo', 'tpu:coral'):
-            logger.warning(f"Device '{device_str}' не поддерживается ultralytics напрямую, используется 'cpu'")
-        return DeviceType.CPU
+            logger.warning(f"⚠️ Устройство '{device_str}' не поддерживается напрямую в этом окружении. Тест будет пропущен.")
+            return None
+
+        if device_str == 'cpu':
+            return DeviceType.CPU
+
+        logger.warning(f"⚠️ Неизвестное устройство '{device_str}'. Тест будет пропущен.")
+        return None
 
     def _cleanup_model_resources(self, model: YOLOBackend | None) -> None:
         if model is None:
@@ -583,7 +679,8 @@ class BenchmarkRunner:
             logger.info("Собираю метрики качества для %s%s на датасете: %s", family, size, dataset_config_path)
             collector = YOLOQualityMetricsCollector(
                 yolo_backend=model, dataset_path=dataset_config_path, task_type=self._get_task_type(),
-                imgsz=self.benchmark_config.input_size or 640, conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
+                imgsz=self.benchmark_config.input_size or 640,
+                conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
             )
             return collector.collect()
         except Exception as e:
@@ -610,3 +707,5 @@ class BenchmarkRunner:
         fake_frame = np.zeros((input_size, input_size, 3), dtype=np.uint8)
         for _ in range(warmup_iterations):
             backend.predict(fake_frame)
+
+

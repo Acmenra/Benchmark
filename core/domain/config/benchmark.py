@@ -1,6 +1,7 @@
 # core/domain/config/benchmark.py
 
 import logging
+from pathlib import Path
 from typing import Any, Optional, List
 from dataclasses import dataclass
 
@@ -30,10 +31,10 @@ class BenchmarkCase(BaseConfig):
 class BenchmarkConfig(BaseConfig):
     """Глобальная конфигурация бенчмарка, содержащая сценарии и общие параметры."""
     runs: tuple[BenchmarkCase, ...]
+    models_dir: Path
     formats: tuple[str, ...] = ()
     quantization: tuple[str, ...] = ()
     task_type: TaskType | None = None
-    device_type: DeviceType | None = None
     devices: tuple[DeviceType, ...] | None = None
     input_size: int | None = None
     batch_size: int | None = None
@@ -41,5 +42,4 @@ class BenchmarkConfig(BaseConfig):
     main_iterations: int | None = None
     confidence_threshold: float | None = None
     test_images: str | None = None
-
 

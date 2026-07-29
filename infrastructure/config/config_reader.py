@@ -24,7 +24,7 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
         runs.append(BenchmarkCase(models=models))
 
     payload = benchmark_data.model_dump(
-        exclude={"runs", "formats", "quantization", "device_type", "task_type"}
+        exclude={"runs", "formats", "quantization", "task_type", "models_dir"}
     )
     payload["runs"] = tuple(runs)
     payload["formats"] = tuple(benchmark_data.formats)
@@ -36,16 +36,16 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
         if benchmark_data.task_type is not None
         else TaskType.DETECT
     )
-    payload["device_type"] = (
-        DeviceType(benchmark_data.device_type)
-        if benchmark_data.device_type is not None
-        else None
-    )
 
     if benchmark_data.devices:
         payload["devices"] = tuple(DeviceType(dev) for dev in benchmark_data.devices)
     else:
         payload["devices"] = None
+
+    if benchmark_data.models_dir:
+        payload["models_dir"] = Path(benchmark_data.models_dir).resolve()
+    else:
+        payload["models_dir"] = Path("./models_dir").resolve()
 
     return BenchmarkConfig(**payload)
 
@@ -70,20 +70,17 @@ def read_yaml(path: Path | str) -> Config:
         benchmark = _build_benchmark_config(benchmark_data)
 
     output_data = schema.output
-    output = ReportConfig(
-        directory=Path(output_data.directory),
-        formats=tuple(output_data.formats),
-        use_timestamp=output_data.use_timestamp,
-    )
+    output = ReportConfig(directory=Path(output_data.directory),
+                          formats=tuple(output_data.formats),
+                          use_timestamp=output_data.use_timestamp)
 
     system_info_data = schema.system_info
     system_info = None
     if system_info_data is not None:
-        system_info = SystemInfoConfig(
-            collect_cpu=system_info_data.collect_cpu,
-            collect_gpu=system_info_data.collect_gpu,
-            collect_power=system_info_data.collect_power,
-            collect_temperature=system_info_data.collect_temperature,
-        )
+        system_info = SystemInfoConfig(collect_cpu=system_info_data.collect_cpu,
+                                       collect_gpu=system_info_data.collect_gpu,
+                                       collect_power=system_info_data.collect_power,
+                                       collect_temperature=system_info_data.collect_temperature)
 
     return Config(benchmark=benchmark, system_info=system_info, output=output)
+

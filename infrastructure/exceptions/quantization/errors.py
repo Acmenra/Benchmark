@@ -32,8 +32,13 @@ class PyTorchQuantizationError(ModelError):
 
 class TensorRTQuantizationError(ModelError):
     """Ошибка квантования TensorRT модели."""
+    pass
 
 
 class ModelExportError(ModelError):
+    """Ошибка экспорта модели в runtime-формат."""
+    pass
+
+class ModelExportError(RuntimeError):
     """Ошибка экспорта модели в runtime-формат."""
     pass

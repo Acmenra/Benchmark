@@ -5,30 +5,35 @@ import logging
 from pathlib import Path
 from ultralytics import YOLO
 
+from infrastructure.exceptions import ModelExportError
 
 logger = logging.getLogger(__name__)
 
 
-class ModelExportError(RuntimeError):
-    """Ошибка экспорта модели в runtime-формат."""
-
-
 def ensure_yolo_pt_model(pt_path: Path) -> Path:
-    """Гарантировать наличие исходной YOLO .pt модели."""
-    pt_path = Path(pt_path)
+    """Гарантировать наличие исходной YOLO .pt модели в указанном кэше."""
     if pt_path.exists():
         return pt_path
 
+    model_name = pt_path.name
+    logger.info(f"Модель не найдена в кэше, скачиваю {model_name}...")
+
     try:
-        YOLO(str(pt_path))
+        YOLO(model_name)
+        downloaded_path = Path(model_name).resolve()
+
+        if downloaded_path.exists():
+            pt_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(downloaded_path), str(pt_path))
+            logger.info(f"Модель успешно перемещена в кэш: {pt_path}")
+
     except Exception as error:
-        raise ModelExportError(f"Не удалось скачать .pt модель: {pt_path}") from error
+        raise ModelExportError(f"Не удалось скачать .pt модель {model_name}: {error}") from error
 
     if not pt_path.exists():
-        raise ModelExportError(f"После загрузки .pt модель не найдена: {pt_path}")
+        raise ModelExportError(f"После загрузки .pt модель не найдена по пути: {pt_path}")
 
     return pt_path
-
 
 def export_yolo_model(
     pt_path: Path,

@@ -1,4 +1,6 @@
 benchmark:
+  models_dir: "./models"
+
   runs:
     # YOLOv8 - самое популярное семейство
     - models:
@@ -38,7 +40,6 @@ benchmark:
     - cuda
 
   task_type: detect
-  device_type: auto
   input_size: 640
   batch_size: 1
   warmup_iterations: 10
