@@ -10,12 +10,19 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True, frozen=True)
 class RAMInfo:
     """
-    Статическая информация об оперативной памяти (RAM).
+    Represents static system memory (RAM) information.
+
+    Provides details about the main system memory, which is critical for
+    determining if large models can be loaded without swapping.
 
     Attributes:
-        total_mb: Общий объем оперативной памяти в мегабайтах.
-        type: Тип памяти (например, "DDR4", "LPDDR5", "Unified Memory" для Apple).
-        speed_mhz: Тактовая частота памяти в МГц (опционально, сложно получить кроссплатформенно).
+        total_mb (int | None): Total physical memory installed in Megabytes.
+        type (str | None): Memory technology type (e.g., "DDR4", "LPDDR5", "Unified Memory").
+        speed_mhz (float | None): Effective clock speed of the memory in Megahertz (MHz).
+
+    Note:
+        - `speed_mhz` might be `None` on some operating systems (like macOS or restricted Linux containers)
+          due to lack of low-level hardware access permissions.
     """
     total_mb: int | None = None
     type: str | None = None
