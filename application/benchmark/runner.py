@@ -44,7 +44,6 @@ from infrastructure.model_quantization.tensorrt import TensorRTFP16Quantizer, Te
 from infrastructure.model_quantization.ncnn import NCNNFP32Exporter, NCNNINT8Quantizer
 from infrastructure.model_quantization.yolo_export import ModelExportError, ensure_yolo_pt_model, export_yolo_model
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -191,16 +190,9 @@ class BenchmarkRunner:
                             quality=quality_metrics,
                         )
 
-    def _build_status_result(self,
-                             family: str,
-                             size: str,
-                             format_: str,
-                             actual_quantization: str | None,
-                             status: str,
-                             error: str | None, performance: LatencyStats | None = None,
-                             cpu: CPUMetrics | None = None,
-                             gpu: GPUMetrics | None = None,
-                             device: str = "unknown") -> ModelBenchmarkResult:
+    def _build_status_result(self, family: str, size: str, format_: str, actual_quantization: str | None, status: str,
+                             error: str | None, performance: LatencyStats | None = None, cpu: CPUMetrics | None = None,
+                             gpu: GPUMetrics | None = None, device: str = "unknown") -> ModelBenchmarkResult:
         return ModelBenchmarkResult(
             model={"family": family, "size": size, "device": device, "task_type": self._get_task_type().value,
                    "format": format_, "quantization": actual_quantization},
@@ -305,8 +297,25 @@ class BenchmarkRunner:
         if not self._is_quantization_supported(format_, quantization):
             return None
 
-        model_stem = self._build_model_stem(family, size)
-        pt_path = self.models_dir / f"{model_stem}.pt"
+        # Проверяем, это кастомная модель или стандартная
+        is_custom_model = (
+                family.endswith('.pt') or
+                family.startswith('/') or
+                family.startswith('./') or
+                family.startswith('~')
+        )
+
+        if is_custom_model:
+            pt_path = Path(family).expanduser().resolve()
+            if not pt_path.exists():
+                logger.error(f"Кастомная модель не найдена: {pt_path}")
+                return None
+            # Для кастомных моделей используем имя файла без расширения как основу для кэша
+            model_stem = pt_path.stem
+            logger.info(f"Используется кастомная модель: {pt_path}")
+        else:
+            model_stem = self._build_model_stem(family, size)
+            pt_path = self.models_dir / f"{model_stem}.pt"
 
         # 1. PyTorch
         if format_ == "pytorch":
@@ -328,8 +337,18 @@ class BenchmarkRunner:
             logger.warning("Неизвестный формат модели: %s", format_)
             return None
 
-        cached = self._find_cached_artifact(family, size, extension, quantization)
-        if cached is not None:
+        # Формируем путь к кэшу
+        if is_custom_model:
+            cache_dir = self.models_dir / "custom_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            if quantization == QuantizationLevel.FP32.value:
+                cached = cache_dir / f"{model_stem}{extension}"
+            else:
+                cached = cache_dir / f"{model_stem}_{quantization}{extension}"
+        else:
+            cached = self._build_cached_artifact_path(family, size, extension, quantization)
+
+        if cached.exists():
             logger.info("Найден закэшированный артефакт %s/%s: %s", format_, quantization, cached)
             return ResolvedModelArtifact(path=cached, quantization=quantization)
 
@@ -339,26 +358,25 @@ class BenchmarkRunner:
             logger.warning("Не удалось подготовить исходную .pt модель: %s", error)
             return None
 
-        # 3. OpenVINO FP16
+        # 3-9. Стандартная логика экспорта
+        # OpenVINO FP16
         if format_ == "openvino" and quantization == QuantizationLevel.FP16.value:
             fp16_artifact = self._prepare_openvino_fp16_artifact(pt_path=pt_path, family=family, size=size,
                                                                  extension=extension)
             if fp16_artifact is None: return None
             return ResolvedModelArtifact(path=fp16_artifact, quantization=quantization)
 
-        # 4. TensorRT FP16
+        # TensorRT FP16 / INT8
         if format_ == "tensorrt" and quantization == QuantizationLevel.FP16.value:
             fp16_artifact = self._prepare_tensorrt_fp16_artifact(pt_path=pt_path, family=family, size=size)
             if fp16_artifact is None: return None
             return ResolvedModelArtifact(path=fp16_artifact, quantization=quantization)
-
-        # 5. TensorRT INT8
         if format_ == "tensorrt" and quantization == QuantizationLevel.INT8.value:
             int8_artifact = self._prepare_tensorrt_int8_artifact(pt_path=pt_path, family=family, size=size)
             if int8_artifact is None: return None
             return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
 
-        # 6. NCNN FP32
+        # NCNN FP32 / INT8
         if format_ == "ncnn" and quantization == QuantizationLevel.FP32.value:
             param_path = self._build_cached_artifact_path(family, size, ".param", quantization)
             bin_path = self._build_cached_artifact_path(family, size, ".bin", quantization)
@@ -368,8 +386,6 @@ class BenchmarkRunner:
             except NCNNQuantizationError as error:
                 logger.warning("Не удалось подготовить NCNN FP32 для %s%s: %s", family, size, error)
                 return None
-
-        # 7. NCNN INT8
         if format_ == "ncnn" and quantization == QuantizationLevel.INT8.value:
             int8_param_path = self._build_cached_artifact_path(family, size, ".param", quantization)
             int8_bin_path = self._build_cached_artifact_path(family, size, ".bin", quantization)
@@ -388,14 +404,14 @@ class BenchmarkRunner:
                 logger.warning("Не удалось подготовить NCNN INT8 для %s%s: %s", family, size, error)
                 return None
 
-        # 8. ONNX и OpenVINO INT8
+        # ONNX и OpenVINO INT8
         if quantization == QuantizationLevel.INT8.value and format_ in ("onnx", "openvino"):
             int8_artifact = self._prepare_int8_artifact(pt_path=pt_path, family=family, size=size, format_=format_,
                                                         extension=extension)
             if int8_artifact is None: return None
             return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
 
-        # 9. Стандартный экспорт
+        # Стандартный экспорт
         export_kwargs = self._build_export_kwargs(export_format, quantization)
         if export_kwargs is None:
             return None
@@ -404,11 +420,11 @@ class BenchmarkRunner:
         try:
             exported_path = export_yolo_model(
                 pt_path=pt_path, export_format=export_format,
-                target_path=self._build_cached_artifact_path(family, size, extension, quantization),
+                target_path=cached,
                 export_kwargs=export_kwargs,
             )
-        except (ModelExportError, Exception):
-            logger.exception("Не удалось экспортировать %s в формат %s/%s", pt_path, format_, quantization)
+        except (ModelExportError, Exception) as e:
+            logger.exception("Не удалось экспортировать %s в формат %s/%s: %s", pt_path, format_, quantization, e)
             return None
 
         logger.info("Экспорт завершён: %s", exported_path)
@@ -507,15 +523,27 @@ class BenchmarkRunner:
             return False
         return True
 
-    def _find_cached_artifact(self, family: str, size: str, extension: str, quantization: str) -> Path | None:
-        candidate = self._build_cached_artifact_path(family, size, extension, quantization)
-        return candidate if candidate.exists() else None
-
     def _build_cached_artifact_path(self, family: str, size: str, extension: str, quantization: str) -> Path:
-        model_stem = self._build_model_stem(family, size)
+        is_custom = (
+                family.endswith('.pt') or
+                family.startswith('/') or
+                family.startswith('./') or
+                family.startswith('~')
+        )
+
+        if is_custom:
+            pt_path = Path(family).expanduser().resolve()
+            model_stem = pt_path.stem  # Берем только имя файла без расширения и пути
+            cache_dir = self.models_dir / "custom_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            base_dir = cache_dir
+        else:
+            model_stem = self._build_model_stem(family, size)
+            base_dir = self.models_dir
+
         if quantization == QuantizationLevel.FP32.value:
-            return self.models_dir / f"{model_stem}{extension}"
-        return self.models_dir / f"{model_stem}_{quantization}{extension}"
+            return base_dir / f"{model_stem}{extension}"
+        return base_dir / f"{model_stem}_{quantization}{extension}"
 
     def _build_model_stem(self, family: str, size: str) -> str:
         return f"{family}{size}{self._get_task_model_suffix()}"
@@ -551,18 +579,16 @@ class BenchmarkRunner:
 
     def _build_yolo_backend(self, model_path: Path, quantization: str = QuantizationLevel.FP32.value,
                             override_device: DeviceType | None = None) -> Backend:
-        # Двойная нормализация гарантирует, что в Backend попадет ТОЛЬКО Enum DeviceType
         target_device = override_device or self.benchmark_config.device_type
         device = self._normalize_device(target_device)
 
-        # Если по какой-то причине device стал None, форсируем CPU, чтобы не упасть
         if device is None:
             device = DeviceType.CPU
 
         task_type = self._get_task_type()
         return YOLOBackend(
             model=YOLO(str(model_path), task=task_type.value),
-            device=device,  # acmenra_cv строго требует DeviceType Enum
+            device=device,
             category=Coco,
             task_type=task_type,
             threshold=self.benchmark_config.confidence_threshold or 0.25,
@@ -580,7 +606,6 @@ class BenchmarkRunner:
         if device_type is None:
             return DeviceType.CPU
 
-        # Если пришел сам Enum, берем его строковое значение
         if isinstance(device_type, DeviceType):
             device_str = device_type.value.lower()
         else:
@@ -606,7 +631,8 @@ class BenchmarkRunner:
             return None
 
         if device_str in ('npu', 'gpu', 'tpu', 'tensorrt', 'npu:rk3588', 'npu:intel', 'npu:hailo', 'tpu:coral'):
-            logger.warning(f"⚠️ Устройство '{device_str}' не поддерживается напрямую в этом окружении. Тест будет пропущен.")
+            logger.warning(
+                f"⚠️ Устройство '{device_str}' не поддерживается напрямую в этом окружении. Тест будет пропущен.")
             return None
 
         if device_str == 'cpu':
@@ -702,5 +728,3 @@ class BenchmarkRunner:
         fake_frame = np.zeros((input_size, input_size, 3), dtype=np.uint8)
         for _ in range(warmup_iterations):
             backend.predict(fake_frame)
-
-
