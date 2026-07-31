@@ -103,7 +103,7 @@ class BenchmarkRunner:
 
                 if normalized_device is None:
                     logger.warning(
-                        f"⚠️ Устройство '{device}' недоступно или не распознано. Все тесты для него будут помечены как skipped.")
+                        f"⚠️ Устройство '{device.value}' недоступно или не распознано. Все тесты для него будут помечены как skipped.")
                 else:
                     logger.info(f"--- Запуск бенчмарка на устройстве: {device_name_for_csv.upper()} ---")
 
@@ -114,7 +114,7 @@ class BenchmarkRunner:
                             yield self._build_status_result(
                                 family=family, size=size, format_=format_,
                                 actual_quantization=quantization, status="skipped",
-                                error=f"Устройство '{device}' недоступно на этой системе",
+                                error=f"Устройство '{device.value}' недоступно на этой системе",
                                 device=device_name_for_csv
                             )
                             continue
