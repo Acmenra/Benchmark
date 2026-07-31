@@ -3,24 +3,24 @@ benchmark:
   run_validation: true
 
   runs:
-#    - models:
-#        - family: yolov8
-#          sizes: [n, s, m, l, x]
-#
-#    - models:
-#        - family: yolo11
-#          sizes: [n, s, m, l, x]
-#
-#    - models:
-#        - family: yolov10
-#          sizes: [n, s, m, l, x]
-#
-#    - models:
-#        - family: yolo26
-#          sizes: [n, s, m, l, x]
+    - models:
+        - family: yolov8
+          sizes: [n, s, m, l, x]
 
     - models:
-        - family: '/Users/stepanborodin/Documents/Acmenra/Projects/YOLOxDEMO/models/YOLOv26n-seg@100 ball  (augment) best.pt'
+        - family: yolov10
+          sizes: [n, s, m, l, x]
+
+    - models:
+        - family: yolo11
+          sizes: [n, s, m, l, x]
+
+    - models:
+        - family: yolo26
+          sizes: [n, s, m, l, x]
+
+    - models:
+        - family: 'model*.pt'
           sizes: [custom]
 
   formats:
