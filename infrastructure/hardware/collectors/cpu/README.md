@@ -13,23 +13,10 @@ This separation ensures that downstream components (reporters, analyzers, runner
 
 ### Folder Structure
 
-|-> `core/domain/hardware/` *(Domain Layer)*  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Module exports and public API definition.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `cpu_info.py` - CPU metadata representation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `gpu_info.py` - GPU metadata representation with CUDA awareness.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `ram_info.py` - System RAM metadata representation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `mps_info.py` - Apple MPS accelerator representation (extensible placeholder).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `npu_info.py` - NPU metadata representation (extensible placeholder).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `tpu_info.py` - TPU metadata representation (extensible placeholder).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `enums.py` - Platform type enumeration.  
+|-> `cpu/`  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Exports `CPUCollector`.  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `collector.py` - Concrete cross-platform CPU data gathering implementation.  
 
-|-> `infrastructure/hardware/collectors/` *(Infrastructure Layer)*  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `base.py` - Abstract base class defining the collector contract.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `cpu/`  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Exports `CPUCollector`.  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ∟ `collector.py` - Concrete cross-platform CPU data gathering implementation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `gpu/` *(Contains `collector.py`, `nvml_worker.py`, `smi_worker.py`, `mps_worker.py`)*  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `ram/` *(Contains `collector.py`)*  
 
 ---
 

@@ -1,4 +1,4 @@
-# core/domain/system/__init__.py
+# core/domain/system/system.py
 
 import logging
 from dataclasses import dataclass

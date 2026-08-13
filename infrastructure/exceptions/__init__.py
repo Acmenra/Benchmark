@@ -1,17 +1,20 @@
 # infrastructure/exceptions/__init__.py
 
-from infrastructure.exceptions.base import (
-    RaBenchmarkException,
-    ConfigError,
-    DatasetError,
-    ModelError,
-)
+import logging
+from infrastructure.exceptions.base import RaBenchmarkException, ConfigError, DatasetError, ModelError
 from infrastructure.exceptions.quantization import (
     CalibrationDataError,
+    ModelExportError,
+    NCNNQuantizationError,
     ONNXQuantizationError,
     OpenVINOQuantizationError,
-    ModelExportError,
+    PyTorchQuantizationError,
+    TensorRTQuantizationError,
 )
+
+
+logger = logging.getLogger(__name__)
+
 
 __all__ = [
     # Base
@@ -19,9 +22,12 @@ __all__ = [
     "ConfigError",
     "DatasetError",
     "ModelError",
-    # Quantization
+    # Quantization & Export
     "CalibrationDataError",
+    "ModelExportError",
+    "NCNNQuantizationError",
     "ONNXQuantizationError",
     "OpenVINOQuantizationError",
-    "ModelExportError",
+    "PyTorchQuantizationError",
+    "TensorRTQuantizationError",
 ]

@@ -2,6 +2,9 @@
 
 import logging
 
+from application.benchmark.reporter import BaseReporter, Reporter
+from application.benchmark.metrics import BaseMetricsCollector, MetricsCollector
+
 
 logger = logging.getLogger(__name__)
 

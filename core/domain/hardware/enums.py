@@ -1,4 +1,4 @@
-# core/enums/hardware.py
+# core/domain/hardware/enums.py
 
 import logging
 from enum import Enum

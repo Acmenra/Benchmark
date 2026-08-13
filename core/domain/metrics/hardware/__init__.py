@@ -1,4 +1,4 @@
-# core/domain/hardware/__init__.py
+# core/domain/metrics/hardware/__init__.py
 
 import logging
 

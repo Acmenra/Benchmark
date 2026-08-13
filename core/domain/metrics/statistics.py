@@ -5,6 +5,7 @@ from typing import Optional
 
 from core.domain.metrics.data_point import DataPoint
 
+
 logger = logging.getLogger(__name__)
 
 

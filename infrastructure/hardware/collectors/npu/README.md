@@ -13,25 +13,10 @@ This separation ensures that downstream components (reporters, analyzers, runner
 
 ### Folder Structure
 
-|-> `core/domain/hardware/` *(Domain Layer)*  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Module exports and public API definition.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `cpu_info.py` - CPU metadata representation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `gpu_info.py` - GPU metadata representation with CUDA awareness.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `ram_info.py` - System RAM metadata representation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `npu_info.py` - NPU metadata representation (implemented for Hailo, extensible).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `mps_info.py` - Apple MPS accelerator representation (extensible placeholder).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `tpu_info.py` - TPU metadata representation (extensible placeholder).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `enums.py` - Platform type enumeration.  
-
-|-> `infrastructure/hardware/collectors/` *(Infrastructure Layer)*  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `base.py` - Abstract base class defining the collector contract.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `cpu/` - CPU data gathering implementation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `gpu/` - GPU data gathering (NVML, SMI, MPS workers).  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `ram/` - RAM data gathering implementation.  
-&nbsp;&nbsp;&nbsp;&nbsp; ∟ `npu/`  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Exports `NPUCollector`.  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ∟ `collector.py` - Main NPU orchestrator implementing `BaseHardwareCollector`.  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ∟ `hailo_worker.py` - Self-contained adapter for Hailo-8/8L accelerators.  
+|-> `npu/`  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Exports `NPUCollector`.  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `collector.py` - Main NPU orchestrator implementing `BaseHardwareCollector`.  
+&nbsp;&nbsp;&nbsp;&nbsp; ∟ `hailo_worker.py` - Self-contained adapter for Hailo-8/8L accelerators.  
 
 ---
 

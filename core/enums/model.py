@@ -18,8 +18,6 @@ TaskType = _TaskType
 DeviceType = _DeviceType
 
 
-
-
 class ExportTarget(Enum):
     X86_64 = 'x86_64'
     ARM64 = 'arm64'
@@ -116,18 +114,6 @@ class MetricType(Enum):
     # Точность (если есть ground truth)
     MAP_50 = 'map_50'
     MAP_50_95 = 'map_50_95'
-
-
-class BaseMetric:
-    """Базовая заглушка для будущих enum/entity метрик."""
-
-
-class Metric(BaseMetric):
-    def __init__(self, metric_uuid: UUID, counter: int, metric_type: MetricType):
-        self.uuid = metric_uuid # Общий, полностью уникальный id
-        self.counter = counter # номер "прогона"
-        self.value = 0 # значение
-        self._metric_type = metric_type # тип значения
 
 
 class Coco(Enum):

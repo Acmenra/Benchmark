@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 
 from core.domain.metrics import MetricStatistics
 
+
 logger = logging.getLogger(__name__)
 
 

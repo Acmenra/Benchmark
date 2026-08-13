@@ -31,7 +31,7 @@ def collect_cpu_temperature_celsius() -> float | None:
     if system == "Darwin":
         # На Apple Silicon температура CPU/GPU часто доступна как температура SoC/MPS.
         try:
-            from infrastructure.hardware.collectors.mps import MPSCollector
+            from infrastructure.hardware.collectors.gpu.mps_worker import MPSCollector
 
             temperature = MPSCollector().tmp()
             if temperature is not None:

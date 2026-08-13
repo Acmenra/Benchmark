@@ -10,7 +10,7 @@ Instead of monolithic OS-checking logic, the `GPUCollector` orchestrates a chain
 
 ### Folder Structure
 
-|-> `infrastructure/hardware/collectors/gpu/`  
+|-> `gpu/`  
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `__init__.py` - Module exports and public API definition. [Learn more.](#__init__py)  
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `collector.py` - Main orchestrator implementing the `BaseHardwareCollector` contract. [Learn more.](#collectorpy)  
 &nbsp;&nbsp;&nbsp;&nbsp; ∟ `mps_worker.py` - Apple Metal Performance Shaders (MPS) adapter. [Learn more.](#mps_workerpy)  

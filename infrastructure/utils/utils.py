@@ -2,13 +2,13 @@
 
 import json
 import logging
+from datetime import time
 from enum import Enum
 from pathlib import Path
 from typing import Any, List, Dict
 from dataclasses import fields, is_dataclass
 
-from core.domain.metrics import MetricStatistics
-
+from core.domain.metrics import MetricStatistics, DataPoint
 
 logger = logging.getLogger(__name__)
 
@@ -144,4 +144,3 @@ def empty_to_none(value: str) -> str | None:
     """Преобразовать пустую строку в None для отчета."""
     stripped_value = value.strip()
     return stripped_value or None
-
