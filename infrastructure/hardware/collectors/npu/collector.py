@@ -9,6 +9,7 @@ from core.domain.metrics import MetricStatistics, DataPoint
 from infrastructure.hardware.collectors.base import BaseHardwareCollector
 from .hailo_worker import HailoWorker
 
+
 logger = logging.getLogger(__name__)
 
 

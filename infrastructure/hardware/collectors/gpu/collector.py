@@ -1,7 +1,4 @@
-"""
-Сборщик метрик GPU. Реализует контракт BaseHardwareCollector.
-Делегирует работу конкретным воркерам (NVML, SMI, MPS).
-"""
+# infrastructure/hardware/collectors/gpu/collector.py
 
 import time
 import logging

@@ -1,9 +1,4 @@
-"""
-Базовый модуль для всех сборщиков метрик железа.
-
-Определяет строгий контракт (интерфейс), который должны реализовывать
-все конкретные сборщики (CPU, GPU, NPU, OS и т.д.).
-"""
+# infrastructure/hardware/collectors/base.py
 
 import logging
 from abc import ABC, abstractmethod

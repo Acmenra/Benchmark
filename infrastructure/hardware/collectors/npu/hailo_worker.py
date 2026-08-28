@@ -1,6 +1,4 @@
-"""
-Самодостаточный адаптер для работы с NPU (в первую очередь Hailo-8/8L).
-"""
+# infrastructure/hardware/collectors/npu/hailo_worker.py
 
 import logging
 import platform

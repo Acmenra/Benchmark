@@ -1,4 +1,4 @@
-# infrastructure/metrics/collector.py
+# infrastructure/metrics/gpu.py
 
 import logging
 import threading

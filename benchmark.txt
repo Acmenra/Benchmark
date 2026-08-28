@@ -1,0 +1,4294 @@
+# application/benchmark/metrics/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'BaseMetricsCollector',
+    'MetricsCollector'
+]
+
+__version__ = "0.0.0.1"
+
+# application/benchmark/metrics/base.py
+
+logger = logging.getLogger(__name__)
+
+class BaseMetricsCollector(ABC):
+    @abstractmethod
+    def start(self) -> None:
+        pass
+
+    @abstractmethod
+    def stop(self) -> None:
+        pass
+
+    @abstractmethod
+    def get(self) -> MetricStatistics:
+        pass
+
+# application/benchmark/metrics/collector.py
+
+logger = logging.getLogger(__name__)
+
+class MetricsCollector:
+    def __init__(self,
+                 benchmark_case: BenchmarkCase,
+                 cpu_collector: CPUMetricsCollector,
+                 gpu_collector: GPUMetricsCollector,
+                 interval_seconds: float = 1.0) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("'interval_seconds' must be greater than 0")
+
+        self.benchmark_case = benchmark_case
+        self.cpu_collector = cpu_collector
+        self.gpu_collector = gpu_collector
+        self._latency = MetricStatistics(unit="millisecond")
+        self._mark_started_at: float | None = None
+
+    def start_run(self) -> None:
+        self._latency = MetricStatistics(unit="millisecond")
+        self._mark_started_at = None
+        self.cpu_collector.start()
+        self.gpu_collector.start()
+
+    def stop_run(self) -> None:
+        self.cpu_collector.stop()
+        self.gpu_collector.stop()
+        self._mark_started_at = None
+
+    def mark_start(self) -> None:
+        self._mark_started_at = time.perf_counter()
+
+    def mark_stop(self) -> None:
+        if self._mark_started_at is None:
+            logger.warning("'mark_stop' called without a preceding 'mark_start', skipping measurement")
+            return
+
+        latency_ms = (time.perf_counter() - self._mark_started_at) * 1000.0
+        self._latency.history.append(DataPoint(time_in_ms=time.perf_counter() * 1000.0,
+                                               value=latency_ms))
+        self._mark_started_at = None
+
+    def get(self) -> BenchmarkResult:
+        return BenchmarkResult(case=self.benchmark_case,
+                               performance=LatencyStats.from_history(self._latency.history),
+                               cpu=self.cpu_collector.get(),
+                               gpu=self.gpu_collector.get())
+
+# application/benchmark/reporter/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "BaseReporter",
+    "Reporter",
+]
+
+__version__ = "0.0.0.1"
+
+# application/benchmark/reporter/base.py
+
+
+logger = logging.getLogger(__name__)
+
+class BaseReporter(ABC):
+    @abstractmethod
+    def report(self, data: Any) -> None:
+        pass
+
+# application/benchmark/reporter/reporter.py
+
+logger = logging.getLogger(__name__)
+
+class Reporter:
+    def __init__(self,
+                 reporters: Dict[str, BaseReporter],
+                 enabled_formats: List[str]) -> None:
+        self._reporters = reporters
+        self._enabled_formats = [fmt.lower().strip() for fmt in enabled_formats]
+
+    def report(self, data: Any) -> None:
+        for fmt in self._enabled_formats:
+            reporter = self._reporters.get(fmt)
+            if not reporter:
+                raise ValueError(
+                    f"Unsupported report format: '{fmt}'. "
+                    f"Available formats are: {list(self._reporters.keys())}"
+                )
+            reporter.report(data)
+
+# application/benchmark/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "BaseReporter",
+    "Reporter",
+    'BaseMetricsCollector',
+    'MetricsCollector'
+]
+
+__version__ = "0.0.0.1"
+
+# application/benchmark/runner.py
+
+logger = logging.getLogger(__name__)
+
+class BenchmarkRunner:
+    def __init__(self, benchmark_config: BenchmarkConfig, system_info_config: SystemInfoConfig | None = None) -> None:
+        self.benchmark_config = benchmark_config
+
+        self.models_dir = benchmark_config.models_dir
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_config = system_info_config or SystemInfoConfig(collect_cpu=True, collect_gpu=True)
+        self.cpu = CPUCollector(system_info_config=safe_config)
+        self.gpu = GPUCollector(system_info_config=safe_config)
+        self.ram = RAMCollector(system_info_config=safe_config)
+
+    def run_suite(self) -> Generator[ModelBenchmarkResult, None, None]:
+        for case in self.benchmark_config.runs:
+            yield from self._run_case(case)
+
+    def _run_case(self, case: BenchmarkCase) -> Generator[ModelBenchmarkResult, None, None]:
+        dataset_path = self._get_dataset_path()
+        input_size = self.benchmark_config.input_size or 640
+        main_iterations = self.benchmark_config.main_iterations or 100
+
+        if dataset_path is not None:
+            logger.info(f"Использую реальный датасет: {dataset_path}")
+            data_source = self._collect_image_paths(dataset_path)
+            is_synthetic = False
+        else:
+            logger.info("Режим синтетических данных: генерирую кадры np.zeros для замера чистой производительности.")
+            data_source = [np.zeros((input_size, input_size, 3), dtype=np.uint8) for _ in range(main_iterations)]
+            is_synthetic = True
+
+        devices_to_test = getattr(self.benchmark_config, 'devices', None)
+        if not devices_to_test:
+            fallback = self.benchmark_config.device_type or DeviceType.CPU
+            devices_to_test = [fallback]
+
+        for model_config in case.models:
+            family = model_config.family
+            size = model_config.size
+
+            for device in devices_to_test:
+                normalized_device = self._normalize_device(device)
+                device_name_for_csv = str(device).lower() if isinstance(device, str) else getattr(device, 'value',
+                                                                                                  str(device)).lower()
+                if normalized_device is None:
+                    logger.warning(
+                        f"⚠️ Устройство '{device.value}' недоступно или не распознано. Все тесты для него будут помечены как skipped.")
+                else:
+                    logger.info(f"--- Запуск бенчмарка на устройстве: {device_name_for_csv.upper()} ---")
+
+                for format_ in self._get_supported_formats():
+                    for quantization in self._get_quantization_levels():
+
+                        if normalized_device is None:
+                            yield self._build_status_result(
+                                family=family, size=size, format_=format_,
+                                actual_quantization=quantization, status="skipped",
+                                error=f"Устройство '{device.value}' недоступно на этой системе",
+                                device=device_name_for_csv
+                            )
+                            continue
+
+                        artifact = self.resolve_model_artifact(family, size, format_, quantization)
+
+                        if artifact is None:
+                            yield self._build_status_result(
+                                family=family, size=size, format_=format_,
+                                actual_quantization=quantization, status="skipped",
+                                error="Модель не подготовлена: формат или квантование не поддержаны текущим pipeline",
+                                device=device_name_for_csv
+                            )
+                            continue
+
+                        collector = MetricsCollector(
+                            benchmark_case=case,
+                            cpu_collector=CPUMetricsCollector(interval_seconds=0.1, cpu_collector=self.cpu),
+                            gpu_collector=GPUMetricsCollector(interval_seconds=0.1, gpu_collector=self.gpu),
+                        )
+
+                        model: Backend | None = None
+                        run_failed = False
+                        try:
+                            model = self._build_yolo_backend(artifact.path, artifact.quantization,
+                                                             override_device=normalized_device)
+                            self._warmup(model)
+                            collector.start_run()
+                            self._run_model_on_data(model, data_source, collector, is_synthetic)
+                        except Exception as error:
+                            logger.exception("Ошибка benchmark-прогона %s%s/%s/%s на %s", family, size, format_,
+                                             quantization, device_name_for_csv)
+                            run_failed = True
+                            raw_result = self._safe_get_collector_result(collector)
+                            yield self._build_status_result(
+                                family=family, size=size, format_=format_,
+                                actual_quantization=artifact.quantization, status="failed",
+                                error=str(error), performance=raw_result.performance,
+                                cpu=raw_result.cpu, gpu=raw_result.gpu,
+                                device=device_name_for_csv
+                            )
+                            self._finalize_run(collector, model)
+                            continue
+
+                        raw_result = self._safe_get_collector_result(collector)
+
+                        try:
+                            if self.benchmark_config.run_validation:
+                                quality_metrics = self._collect_quality_metrics(model, family, size)
+                            else:
+                                quality_metrics = None
+                        except Exception as error:
+                            logger.warning("Не удалось собрать метрики качества для %s%s/%s/%s: %s", family, size,
+                                           format_, quantization, error)
+                            quality_metrics = None
+                        finally:
+                            self._finalize_run(collector, model)
+
+                        yield ModelBenchmarkResult(
+                            model={
+                                "family": family,
+                                "size": size,
+                                "device": device_name_for_csv,
+                                "task_type": self._get_task_type().value,
+                                "format": format_,
+                                "quantization": artifact.quantization,
+                            },
+                            status="success",
+                            performance=raw_result.performance,
+                            cpu=raw_result.cpu,
+                            gpu=raw_result.gpu,
+                            quality=quality_metrics,
+                        )
+
+    def _build_status_result(self, family: str, size: str, format_: str, actual_quantization: str | None, status: str,
+                             error: str | None, performance: LatencyStats | None = None, cpu: CPUMetrics | None = None,
+                             gpu: GPUMetrics | None = None, device: str = "unknown") -> ModelBenchmarkResult:
+        return ModelBenchmarkResult(
+            model={"family": family, "size": size, "device": device, "task_type": self._get_task_type().value,
+                   "format": format_, "quantization": actual_quantization},
+            status=status,
+            error=error,
+            performance=performance,
+            cpu=cpu,
+            gpu=gpu,
+            quality=None,
+        )
+
+    def _safe_get_collector_result(self, collector: MetricsCollector) -> object:
+        try:
+            return collector.get()
+        except Exception as error:
+            logger.warning("Не удалось получить метрики benchmark-прогона: %s", error)
+            return type("FallbackBenchmarkResult", (), {"performance": None, "cpu": None, "gpu": None})()
+
+    def _finalize_run(self, collector: MetricsCollector, model: Backend | None) -> None:
+        try:
+            collector.stop_run()
+        except Exception as error:
+            logger.exception("Не удалось остановить collector benchmark-прогона: %s", error)
+        if model is None:
+            return
+        try:
+            self._cleanup_model_resources(model)
+        except Exception as error:
+            logger.exception("Не удалось освободить ресурсы модели: %s", error)
+
+    def _get_dataset_path(self) -> Path | None:
+        path_str = self.benchmark_config.test_images
+        if not path_str or str(path_str).lower() == "synthetic":
+            return None
+        dataset_path = Path(path_str)
+        if dataset_path.suffix.lower() in (".yaml", ".yml"):
+            logger.warning(
+                f"В test_images указан YAML-файл ({dataset_path.name}), а не папка с данными. Переключаюсь на синтетические данные.")
+            return None
+        if not dataset_path.is_dir():
+            logger.warning(
+                f"Путь '{dataset_path}' не найден или не является директорией. Переключаюсь на синтетические данные.")
+            return None
+        if (dataset_path / "images").is_dir():
+            return dataset_path / "images"
+        if (dataset_path / "val" / "images").is_dir():
+            return dataset_path / "val" / "images"
+        if (dataset_path / "train" / "images").is_dir():
+            return dataset_path / "train" / "images"
+        return dataset_path
+
+    def _collect_image_paths(self, dataset_path: Path) -> list[Path]:
+        extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
+        image_paths: list[Path] = []
+        for ext in extensions:
+            image_paths.extend(Path(path) for path in glob.glob(os.path.join(dataset_path, f"*{ext}")))
+            image_paths.extend(Path(path) for path in glob.glob(os.path.join(dataset_path, f"*{ext.upper()}")))
+        if not image_paths:
+            raise ValueError(f"No images found in {dataset_path}")
+        return sorted(image_paths)
+
+    def _get_supported_formats(self) -> tuple[str, ...]:
+        return self.benchmark_config.formats or ("pytorch",)
+
+    def _get_quantization_levels(self) -> tuple[str, ...]:
+        return self.benchmark_config.quantization or (QuantizationLevel.FP32.value,)
+
+    def _get_task_type(self) -> TaskType:
+        return self.benchmark_config.task_type or TaskType.DETECT
+
+    def _run_model_on_data(self, model: Backend, data_source: list[Path] | list[np.ndarray],
+                           collector: MetricsCollector, is_synthetic: bool) -> None:
+        main_iterations = self.benchmark_config.main_iterations or len(data_source)
+        for iteration in range(main_iterations):
+            if is_synthetic:
+                frame = data_source[iteration % len(data_source)]
+            else:
+                img_path = data_source[iteration % len(data_source)]
+                frame = cv2.imread(str(img_path))
+                if frame is None:
+                    logger.warning("Could not read %s, skipping", img_path)
+                    continue
+            collector.mark_start()
+            try:
+                model.predict(frame)
+            finally:
+                collector.mark_stop()
+
+    def resolve_model_artifact(self, family: str, size: str, format_: str,
+                               quantization: str = QuantizationLevel.FP32.value) -> ResolvedModelArtifact | None:
+        return self._try_resolve_model_artifact(family, size, format_, self._normalize_quantization(quantization))
+
+    def resolve_model_path(self, family: str, size: str, format_: str,
+                           quantization: str = QuantizationLevel.FP32.value) -> Path | None:
+        artifact = self.resolve_model_artifact(family, size, format_, quantization)
+        return artifact.path if artifact is not None else None
+
+    def _try_resolve_model_artifact(self, family: str, size: str, format_: str,
+                                    quantization: str) -> ResolvedModelArtifact | None:
+
+        quantization = self._normalize_quantization(quantization)
+        if not self._is_quantization_supported(format_, quantization):
+            return None
+
+        is_custom_model = (
+                family.endswith('.pt') or
+                family.startswith('/') or
+                family.startswith('./') or
+                family.startswith('~')
+        )
+
+        if is_custom_model:
+            pt_path = Path(family).expanduser().resolve()
+            if not pt_path.exists():
+                logger.error(f"Кастомная модель не найдена: {pt_path}")
+                return None
+            model_stem = pt_path.stem
+            logger.info(f"Используется кастомная модель: {pt_path}")
+        else:
+            model_stem = self._build_model_stem(family, size)
+            pt_path = self.models_dir / f"{model_stem}.pt"
+
+        if format_ == "pytorch":
+            if quantization == QuantizationLevel.INT8.value:
+                int8_artifact = self._prepare_pytorch_int8_artifact(pt_path=pt_path, family=family, size=size)
+                if int8_artifact is None: return None
+                return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
+            try:
+                pt_path = ensure_yolo_pt_model(pt_path)
+            except ModelExportError as error:
+                logger.warning("Не удалось подготовить исходную .pt модель: %s", error)
+                return None
+            return ResolvedModelArtifact(path=pt_path, quantization=quantization)
+
+        export_format = ultralytics_export_format(format_)
+        extension = export_extension(format_)
+        if export_format is None or extension is None:
+            logger.warning("Неизвестный формат модели: %s", format_)
+            return None
+
+        if is_custom_model:
+            cache_dir = self.models_dir / "custom_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            if quantization == QuantizationLevel.FP32.value:
+                cached = cache_dir / f"{model_stem}{extension}"
+            else:
+                cached = cache_dir / f"{model_stem}_{quantization}{extension}"
+        else:
+            cached = self._build_cached_artifact_path(family, size, extension, quantization)
+
+        if cached.exists():
+            logger.info("Найден закэшированный артефакт %s/%s: %s", format_, quantization, cached)
+            return ResolvedModelArtifact(path=cached, quantization=quantization)
+
+        try:
+            pt_path = ensure_yolo_pt_model(pt_path)
+        except ModelExportError as error:
+            logger.warning("Не удалось подготовить исходную .pt модель: %s", error)
+            return None
+
+        if format_ == "openvino" and quantization == QuantizationLevel.FP16.value:
+            fp16_artifact = self._prepare_openvino_fp16_artifact(pt_path=pt_path, family=family, size=size,
+                                                                 extension=extension)
+            if fp16_artifact is None: return None
+            return ResolvedModelArtifact(path=fp16_artifact, quantization=quantization)
+
+        if format_ == "tensorrt" and quantization == QuantizationLevel.FP16.value:
+            fp16_artifact = self._prepare_tensorrt_fp16_artifact(pt_path=pt_path, family=family, size=size)
+            if fp16_artifact is None: return None
+            return ResolvedModelArtifact(path=fp16_artifact, quantization=quantization)
+        if format_ == "tensorrt" and quantization == QuantizationLevel.INT8.value:
+            int8_artifact = self._prepare_tensorrt_int8_artifact(pt_path=pt_path, family=family, size=size)
+            if int8_artifact is None: return None
+            return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
+
+        if format_ == "ncnn" and quantization == QuantizationLevel.FP32.value:
+            param_path = self._build_cached_artifact_path(family, size, ".param", quantization)
+            bin_path = self._build_cached_artifact_path(family, size, ".bin", quantization)
+            try:
+                NCNNFP32Exporter().export(pt_path, param_path, bin_path)
+                return ResolvedModelArtifact(path=param_path, quantization=quantization)
+            except NCNNQuantizationError as error:
+                logger.warning("Не удалось подготовить NCNN FP32 для %s%s: %s", family, size, error)
+                return None
+        if format_ == "ncnn" and quantization == QuantizationLevel.INT8.value:
+            int8_param_path = self._build_cached_artifact_path(family, size, ".param", quantization)
+            int8_bin_path = self._build_cached_artifact_path(family, size, ".bin", quantization)
+            dataset_config_path = self._find_quality_dataset_config()
+            if dataset_config_path is None:
+                logger.warning("NCNN INT8 требует data.yaml для калибровки, датасет не найден")
+                return None
+            input_size = self.benchmark_config.input_size or 640
+            try:
+                NCNNINT8Quantizer().quantize(
+                    pt_path=pt_path, ncnn_int8_param_path=int8_param_path, ncnn_int8_bin_path=int8_bin_path,
+                    dataset_config_path=dataset_config_path, input_size=input_size,
+                )
+                return ResolvedModelArtifact(path=int8_param_path, quantization=quantization)
+            except NCNNQuantizationError as error:
+                logger.warning("Не удалось подготовить NCNN INT8 для %s%s: %s", family, size, error)
+                return None
+
+        if quantization == QuantizationLevel.INT8.value and format_ in ("onnx", "openvino"):
+            int8_artifact = self._prepare_int8_artifact(pt_path=pt_path, family=family, size=size, format_=format_,
+                                                        extension=extension)
+            if int8_artifact is None:
+                return None
+            return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
+
+        export_kwargs = self._build_export_kwargs(export_format, quantization)
+        if export_kwargs is None:
+            return None
+
+        logger.info("Экспорт %s -> %s/%s", model_stem, format_, quantization)
+        try:
+            exported_path = export_yolo_model(
+                pt_path=pt_path, export_format=export_format,
+                target_path=cached,
+                export_kwargs=export_kwargs,
+            )
+        except (ModelExportError, Exception) as e:
+            logger.exception("Не удалось экспортировать %s в формат %s/%s: %s", pt_path, format_, quantization, e)
+            return None
+
+        logger.info("Экспорт завершён: %s", exported_path)
+        return ResolvedModelArtifact(path=exported_path, quantization=quantization)
+
+    def _prepare_pytorch_int8_artifact(self, pt_path: Path, family: str, size: str) -> Path | None:
+        int8_path = self._build_cached_artifact_path(family, size, ".pt", QuantizationLevel.INT8.value)
+        dataset_config_path = self._find_quality_dataset_config()
+        if dataset_config_path is None:
+            logger.warning("PyTorch INT8 требует data.yaml, датасет не найден")
+            return None
+        try:
+            return PyTorchINT8Quantizer().quantize(pt_path=pt_path, int8_pt_path=int8_path,
+                                                   dataset_config_path=dataset_config_path,
+                                                   input_size=self.benchmark_config.input_size or 640)
+        except (PyTorchQuantizationError, Exception) as error:
+            logger.warning("Не удалось подготовить PyTorch INT8 артефакт для %s%s: %s", family, size, error)
+            return None
+
+    def _prepare_tensorrt_fp16_artifact(self, pt_path: Path, family: str, size: str) -> Path | None:
+        fp16_path = self._build_cached_artifact_path(family, size, ".engine", QuantizationLevel.FP16.value)
+        try:
+            return TensorRTFP16Quantizer().quantize(pt_path=pt_path, fp16_engine_path=fp16_path)
+        except (TensorRTQuantizationError, Exception) as error:
+            logger.warning("Не удалось подготовить TensorRT FP16 артефакт для %s%s: %s", family, size, error)
+            return None
+
+    def _prepare_tensorrt_int8_artifact(self, pt_path: Path, family: str, size: str) -> Path | None:
+        int8_path = self._build_cached_artifact_path(family, size, ".engine", QuantizationLevel.INT8.value)
+        dataset_config_path = self._find_quality_dataset_config()
+        if dataset_config_path is None:
+            logger.warning("TensorRT INT8 требует data.yaml, датасет не найден")
+            return None
+        try:
+            return TensorRTINT8Quantizer().quantize(pt_path=pt_path, int8_engine_path=int8_path,
+                                                    dataset_config_path=dataset_config_path,
+                                                    input_size=self.benchmark_config.input_size or 640)
+        except (TensorRTQuantizationError, Exception) as error:
+            logger.warning("Не удалось подготовить TensorRT INT8 артефакт для %s%s: %s", family, size, error)
+            return None
+
+    def _prepare_openvino_fp16_artifact(self, pt_path: Path, family: str, size: str, extension: str) -> Path | None:
+        fp32_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP32.value)
+        fp16_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP16.value)
+        try:
+            return OpenVINOFP16Quantizer().quantize(pt_path=pt_path, fp32_openvino_path=fp32_path,
+                                                    fp16_openvino_path=fp16_path)
+        except (OpenVINOQuantizationError, ModelExportError, Exception) as error:
+            logger.warning("Не удалось подготовить FP16 OpenVINO артефакт для %s%s: %s", family, size, error)
+            return None
+
+    def _prepare_int8_artifact(self, pt_path: Path, family: str, size: str, format_: str,
+                               extension: str) -> Path | None:
+        dataset_config_path = self._find_quality_dataset_config()
+        if dataset_config_path is None:
+            logger.warning("INT8 требует data.yaml для калибровки, датасет не найден")
+            return None
+        input_size = self.benchmark_config.input_size or 640
+        fp32_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP32.value)
+        int8_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.INT8.value)
+        try:
+            if format_ == "onnx":
+                return ONNXINT8Quantizer().quantize(pt_path=pt_path, fp32_onnx_path=fp32_path, int8_onnx_path=int8_path,
+                                                    dataset_config_path=dataset_config_path, input_size=input_size)
+            if format_ == "openvino":
+                return OpenVINOINT8Quantizer().quantize(pt_path=pt_path, fp32_openvino_path=fp32_path,
+                                                        int8_openvino_path=int8_path,
+                                                        dataset_config_path=dataset_config_path, input_size=input_size)
+        except (ONNXQuantizationError, OpenVINOQuantizationError, ModelExportError, Exception) as error:
+            logger.warning("Не удалось подготовить INT8 артефакт для %s%s/%s: %s", family, size, format_, error)
+            return None
+        logger.warning("INT8 quantizer для формата %s не реализован", format_)
+        return None
+
+    def _is_quantization_supported(self, format_: str, quantization: str) -> bool:
+        if quantization == QuantizationLevel.FP32.value:
+            return True
+        if quantization == QuantizationLevel.INT4.value:
+            logger.warning("INT4 пока не поддержан через Ultralytics export")
+            return False
+
+        supported_formats_by_quantization = {
+            QuantizationLevel.FP16.value: {"onnx", "openvino", "tensorrt"},
+            QuantizationLevel.INT8.value: {"onnx", "openvino", "tensorrt", "pytorch", "ncnn"},
+        }
+        supported_formats = supported_formats_by_quantization.get(quantization, set())
+        if format_ not in supported_formats:
+            logger.warning("Квантование %s для формата %s сейчас не поддержано, кейс будет пропущен", quantization,
+                           format_)
+            return False
+        return True
+
+    def _build_cached_artifact_path(self, family: str, size: str, extension: str, quantization: str) -> Path:
+        is_custom = (
+                family.endswith('.pt') or
+                family.startswith('/') or
+                family.startswith('./') or
+                family.startswith('~')
+        )
+
+        if is_custom:
+            pt_path = Path(family).expanduser().resolve()
+            model_stem = pt_path.stem  # Берем только имя файла без расширения и пути
+            cache_dir = self.models_dir / "custom_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            base_dir = cache_dir
+        else:
+            model_stem = self._build_model_stem(family, size)
+            base_dir = self.models_dir
+
+        if quantization == QuantizationLevel.FP32.value:
+            return base_dir / f"{model_stem}{extension}"
+        return base_dir / f"{model_stem}_{quantization}{extension}"
+
+    def _build_model_stem(self, family: str, size: str) -> str:
+        return f"{family}{size}{self._get_task_model_suffix()}"
+
+    def _get_task_model_suffix(self) -> str:
+        suffixes_by_task = {TaskType.SEGMENT.value: "-seg", TaskType.POSE.value: "-pose",
+                            TaskType.CLASSIFY.value: "-cls", TaskType.OBB.value: "-obb"}
+        return suffixes_by_task.get(self._get_task_type().value, "")
+
+    def _build_export_kwargs(self, export_format: str, quantization: str) -> dict[str, object] | None:
+        export_kwargs: dict[str, object] = {"format": export_format}
+        if quantization == QuantizationLevel.FP32.value:
+            return export_kwargs
+        if quantization == QuantizationLevel.FP16.value:
+            export_kwargs["quantize"] = "fp16"
+            return export_kwargs
+        if quantization == QuantizationLevel.INT8.value:
+            dataset_config_path = self._find_quality_dataset_config()
+            if dataset_config_path is None:
+                logger.warning("INT8 export требует data.yaml для калибровки, датасет не найден")
+                return None
+            export_kwargs["int8"] = True
+            export_kwargs["data"] = str(dataset_config_path)
+            return export_kwargs
+        return None
+
+    def _normalize_quantization(self, quantization: str) -> str:
+        try:
+            return QuantizationLevel(quantization).value
+        except ValueError:
+            logger.warning("Неизвестный уровень квантования %s, используется fp32", quantization)
+            return QuantizationLevel.FP32.value
+
+    def _build_yolo_backend(self, model_path: Path, quantization: str = QuantizationLevel.FP32.value,
+                            override_device: DeviceType | None = None) -> Backend:
+        target_device = override_device or self.benchmark_config.device_type
+        device = self._normalize_device(target_device)
+
+        if device is None:
+            device = DeviceType.CPU
+
+        task_type = self._get_task_type()
+        return YOLOBackend(
+            model=YOLO(str(model_path), task=task_type.value),
+            device=device,
+            category=Coco,
+            task_type=task_type,
+            threshold=self.benchmark_config.confidence_threshold or 0.25,
+            iou=0.7,
+            imgsz=self.benchmark_config.input_size or 640,
+            half=quantization == QuantizationLevel.FP16.value,
+        )
+
+    def _normalize_device(self, device_type: DeviceType | str | None) -> DeviceType | None:
+        if device_type is None:
+            return DeviceType.CPU
+
+        if isinstance(device_type, DeviceType):
+            device_str = device_type.value.lower()
+        else:
+            device_str = str(device_type).strip().lower()
+
+        if device_str == 'auto':
+            if torch.cuda.is_available():
+                return DeviceType.CUDA
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return DeviceType.MPS
+            return DeviceType.CPU
+
+        if device_str == 'cuda':
+            if torch.cuda.is_available():
+                return DeviceType.CUDA
+            logger.warning("⚠️ Запрошено устройство 'cuda', но CUDA не доступна на этой системе. Тест будет пропущен.")
+            return None
+
+        if device_str in ('mps', 'metal'):
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return DeviceType.MPS
+            logger.warning("⚠️ Запрошено устройство 'mps', но MPS не доступен на этой системе. Тест будет пропущен.")
+            return None
+
+        if device_str in ('npu', 'gpu', 'tpu', 'tensorrt', 'npu:rk3588', 'npu:intel', 'npu:hailo', 'tpu:coral'):
+            logger.warning(
+                f"⚠️ Устройство '{device_str}' не поддерживается напрямую в этом окружении. Тест будет пропущен.")
+            return None
+
+        if device_str == 'cpu':
+            return DeviceType.CPU
+
+        logger.warning(f"⚠️ Неизвестное устройство '{device_str}'. Тест будет пропущен.")
+        return None
+
+    def _cleanup_model_resources(self, model: Backend | None) -> None:
+        if model is None:
+            return
+        raw_model = getattr(model, "model", None)
+        self._call_cleanup_method(model)
+        self._call_cleanup_method(raw_model)
+        predictor = getattr(raw_model, "predictor", None)
+        if predictor is not None:
+            self._clear_predictor_resources(predictor)
+        self._clear_torch_caches()
+        self._destroy_cv2_windows()
+        gc.collect()
+
+    def _call_cleanup_method(self, value: object | None) -> None:
+        if value is None:
+            return
+        for method_name in ("close", "release"):
+            method = getattr(value, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                except Exception as error:
+                    logger.debug("Не удалось вызвать %s(): %s", method_name, error)
+
+    def _clear_predictor_resources(self, predictor: object) -> None:
+        for attribute_name in ("dataset", "vid_writer", "plotted_img", "results", "batch"):
+            try:
+                setattr(predictor, attribute_name, None)
+            except Exception as error:
+                logger.debug("Не удалось очистить predictor.%s: %s", attribute_name, error)
+
+    def _clear_torch_caches(self) -> None:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except Exception as error:
+                logger.debug("Не удалось очистить CUDA IPC cache: %s", error)
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.empty_cache()
+            except Exception as error:
+                logger.debug("Не удалось очистить MPS cache: %s", error)
+
+    def _destroy_cv2_windows(self) -> None:
+        try:
+            cv2.destroyAllWindows()
+        except Exception as error:
+            logger.debug("Не удалось закрыть окна OpenCV: %s", error)
+
+    def _collect_quality_metrics(self, model: Backend, family: str, size: str) -> QualityMetrics | None:
+        try:
+            dataset_config_path = self._find_quality_dataset_config()
+            if dataset_config_path is None:
+                logger.debug("Датасет с разметкой не найден для %s%s, пропускаю сбор метрик качества", family, size)
+                return None
+            logger.info("Собираю метрики качества для %s%s на датасете: %s", family, size, dataset_config_path)
+            collector = YOLOQualityMetricsCollector(
+                yolo_backend=model, dataset_path=dataset_config_path, task_type=self._get_task_type(),
+                imgsz=self.benchmark_config.input_size or 640,
+                conf_threshold=self.benchmark_config.confidence_threshold or 0.25,
+            )
+            return collector.collect()
+        except Exception as e:
+            logger.warning("Не удалось собрать метрики качества для %s%s: %s", family, size, e)
+            return None
+
+    def _find_quality_dataset_config(self) -> Path | None:
+        validation_paths: list[Path] = []
+        if self.benchmark_config.test_images is not None:
+            benchmark_dataset_path = Path(self.benchmark_config.test_images)
+            validation_paths.extend([benchmark_dataset_path / "data.yaml", benchmark_dataset_path.parent / "data.yaml"])
+        validation_paths.extend([
+            Path("dataset/data.yaml"), Path("dataset/val/data.yaml"), Path("dataset/validation/data.yaml"),
+            Path("dataset/coco/data.yaml"), Path("data/val/data.yaml"),
+        ])
+        for path in validation_paths:
+            if path.is_file():
+                return path
+        return None
+
+    def _warmup(self, backend: Backend) -> None:
+        input_size = self.benchmark_config.input_size or 640
+        warmup_iterations = self.benchmark_config.warmup_iterations or 10
+        fake_frame = np.zeros((input_size, input_size, 3), dtype=np.uint8)
+        for _ in range(warmup_iterations):
+            backend.predict(fake_frame)
+
+# application/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "BaseReporter",
+    "Reporter",
+    'BaseMetricsCollector',
+    'MetricsCollector'
+]
+
+__version__ = "0.0.0.1"
+
+# application/cli.py
+
+logger = logging.getLogger(__name__)
+
+def parse_args() -> Namespace:
+    parser = ArgumentParser(description="Edge AI Benchmark Suite")
+
+    parser.add_argument(
+        "command",
+        choices=["run"],
+        help="Команда для выполнения (пока поддерживается только 'run')"
+    )
+
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=False,
+        default=None,
+        help="Путь к YAML файлу конфигурации"
+    )
+
+    parser.add_argument(
+        "--info",
+        action="store_true",
+        help="Вывести информацию о системе и завершить работу (без запуска бенчмарка)"
+    )
+
+    return parser.parse_args()
+
+# core/configs/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/config/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'Config',
+    'SystemInfoConfig',
+    'BaseConfig',
+    'BenchmarkCase',
+    'BenchmarkConfig',
+    'ModelConfig',
+    'ReportConfig'
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/config/base.py
+
+logger = logging.getLogger(__name__)
+
+class BaseConfig:
+    pass
+
+# core/domain/config/benchmark.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class BenchmarkCase(BaseConfig):
+    models: tuple[ModelConfig, ...]
+
+    @property
+    def model_names(self) -> tuple[str, ...]:
+        return tuple(model.name for model in self.models)
+
+@dataclass(slots=True, frozen=True)
+class BenchmarkConfig(BaseConfig):
+    runs: tuple[BenchmarkCase, ...]
+    models_dir: Path
+    run_validation: bool = True
+    formats: tuple[str, ...] = ()
+    quantization: tuple[str, ...] = ()
+    task_type: TaskType | None = None
+    devices: tuple[DeviceType, ...] | None = None
+    input_size: int | None = None
+    batch_size: int | None = None
+    warmup_iterations: int | None = None
+    main_iterations: int | None = None
+    confidence_threshold: float | None = None
+    test_images: str | None = None
+
+# core/domain/config/model.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class ModelConfig(BaseConfig):
+    size: str
+    family: str
+
+    @property
+    def name(self) -> str:
+        return f"{self.family}-{self.size}"
+
+# core/domain/config/report.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class ReportConfig(BaseConfig):
+    directory: Path
+    formats: tuple[str, ...]
+    use_timestamp: bool
+
+# core/domain/config/root.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class Config(BaseConfig):
+    benchmark: BenchmarkConfig | None
+    system_info: SystemInfoConfig | None
+    output: ReportConfig
+
+# core/domain/config/system.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class SystemInfoConfig(BaseConfig):
+    collect_cpu: bool
+    collect_gpu: bool
+    collect_power: bool
+    collect_temperature: bool
+
+# core/domain/hardware/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'CPUInfo',
+    'GPUInfo',
+    'MPSInfo',
+    'NPUInfo',
+    'TPUInfo',
+    'RAMInfo',
+    'PlatformType'
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/hardware/cpu_info.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class CPUInfo:
+    name: str | None
+    architecture: str | None
+    physical_cores: int | None
+    logical_cores: int | None
+    max_frequency_mhz: float | None
+
+# core/domain/hardware/enums.py
+
+logger = logging.getLogger(__name__)
+
+class PlatformType(Enum):
+    DESKTOP = 'desktop'
+    JETSON = 'jetson'
+    RASPBERRY_PI = 'raspberry_pi'
+    INTEL_NUC = 'intel_nuc'
+    HAILO = 'hailo'
+    UNKNOWN = 'unknown'
+
+# core/domain/hardware/gpu_info.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class GPUInfo:
+    name: str | None = None
+    memory_mb: int | None = None
+    driver_version: str | None = None
+
+    has_cuda: bool = False
+    cuda_version: str | None = None
+
+# core/domain/hardware/npu_info.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class MPSInfo:
+    unified_memory_gb: float | None = None
+    neural_engine_cores: int | None = None
+
+# core/domain/hardware/npu_info.py
+import logging
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class NPUInfo:
+    name: str | None = None
+    operations_per_second: str | None = None
+    driver_version: str | None = None
+
+# core/domain/hardware/ram_info.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class RAMInfo:
+    total_mb: int | None = None
+    type: str | None = None
+    speed_mhz: float | None = None
+
+# core/domain/hardware/tpu_info.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class TPUInfo:
+    name: str | None = None
+    device_path: str | None = None
+    driver_version: str | None = None
+    max_temperature_c: float | None = None
+
+# core/domain/metrics/hardware/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'CPUMetrics',
+    'GPUMetrics'
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/metrics/hardware/cpu.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class CPUMetrics:
+    cpu_power: MetricStatistics | None = None
+    cpu_utilization: MetricStatistics | None = None
+    cpu_temperature: MetricStatistics | None = None
+
+# core/domain/metrics/hardware/gpu.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class GPUMetrics:
+    vram_usage: MetricStatistics | None = None
+    gpu_power: MetricStatistics | None = None
+    gpu_utilization: MetricStatistics | None = None
+    gpu_temperature: MetricStatistics | None = None
+
+# core/domain/metrics/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'DataPoint',
+    'MetricStatistics',
+    'LatencyStats',
+    'CPUMetrics',
+    'GPUMetrics',
+    'QualityMetrics',
+    'BenchmarkResult',
+    'ModelBenchmarkResult',
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/metrics/data_point.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class DataPoint:
+    time_in_ms: float
+    value: float | int
+
+# core/domain/metrics/latency.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class LatencyStats:
+    fps: float | None
+    mean_ms: float | None
+    p50_ms: float | None
+    p95_ms: float | None
+    p99_ms: float | None
+    min_ms: float | None
+    max_ms: float | None
+
+    @classmethod
+    def from_history(cls, history: list[DataPoint]) -> "LatencyStats | None":
+        if not history:
+            return None
+
+        values = sorted(point.value for point in history)
+        mean = sum(values) / len(values)
+
+        return cls(
+            fps=1000.0 / mean if mean > 0 else None,
+            mean_ms=mean,
+            p50_ms=_percentile(values, 0.50),
+            p95_ms=_percentile(values, 0.95),
+            p99_ms=_percentile(values, 0.99),
+            min_ms=values[0],
+            max_ms=values[-1],
+        )
+
+# core/domain/metrics/quality.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class QualityMetrics:
+    recall: float | None = None
+    precision: float | None = None
+    f1_score: float | None = None
+    map50: float | None = None
+    map50_95: float | None = None
+
+# core/domain/metrics/results.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class BenchmarkResult:
+    case: BenchmarkCase
+    performance: LatencyStats | None = None
+    cpu: CPUMetrics | None = None
+    gpu: GPUMetrics | None = None
+
+@dataclass(slots=True, frozen=True)
+class ModelBenchmarkResult:
+    model: dict[str, Any]
+    status: str = "success"
+    error: str | None = None
+    performance: LatencyStats | None = None
+    cpu: CPUMetrics | None = None
+    gpu: GPUMetrics | None = None
+    quality: QualityMetrics | None = None
+
+# core/domain/metrics/statistics.py
+
+logger = logging.getLogger(__name__)
+
+def _percentile(sorted_values: list[float], coeff: float) -> float:
+    if not sorted_values:
+        return 0.0
+    idx = int(coeff * (len(sorted_values) - 1))
+    return sorted_values[min(idx, len(sorted_values) - 1)]
+
+class MetricStatistics:
+    def __init__(self, unit: Optional[str] = None) -> None:
+        self.history: list[DataPoint] = []
+        self.unit: str | None = unit
+        self._sorted_values: list[float] | None = None
+
+    def __str__(self) -> str:
+        if not self.history:
+            return f"MetricStatistics[{self.unit or 'unknown'}]: empty"
+        return (f"Stats[{self.unit}]: n={len(self.history)}, "
+                f"min={self.minimum:.2f}, mean={self.mean:.2f}, "
+                f"p95={self.p95:.2f}, max={self.maximum:.2f}")
+
+    def __repr__(self) -> str:
+        count = len(self.history)
+        mean_val = f"{self.mean:.2f}" if self.mean is not None else "N/A"
+        return f"MetricStatistics(unit='{self.unit}', samples={count}, mean={mean_val})"
+
+    @property
+    def minimum(self) -> Optional[float]:
+        if not self.history:
+            return None
+        self._ensure_sorted()
+        return self._sorted_values[0] if self._sorted_values else None
+
+    @property
+    def maximum(self) -> Optional[float]:
+        if not self.history:
+            return None
+        self._ensure_sorted()
+        return self._sorted_values[-1] if self._sorted_values else None
+
+    @property
+    def mean(self) -> Optional[float]:
+        if not self.history:
+            return None
+        values = [i.value for i in self.history]
+        return sum(values) / len(values)
+
+    @property
+    def median(self) -> Optional[float]:
+        if not self.history:
+            return None
+        self._ensure_sorted()
+        if not self._sorted_values:
+            return None
+        n = len(self._sorted_values)
+        if n % 2 == 0:
+            return (self._sorted_values[n // 2] + self._sorted_values[n // 2 - 1]) / 2
+        return self._sorted_values[n // 2]
+
+    @property
+    def p95(self) -> Optional[float]:
+        if not self.history:
+            return None
+        self._ensure_sorted()
+        if not self._sorted_values:
+            return None
+        return _percentile(self._sorted_values, 0.95)
+
+    @property
+    def p99(self) -> Optional[float]:
+        if not self.history:
+            return None
+        self._ensure_sorted()
+        if not self._sorted_values:
+            return None
+        return _percentile(self._sorted_values, 0.99)
+
+    def _ensure_sorted(self) -> None:
+        if self._sorted_values is None:
+            self._sorted_values = sorted(point.value for point in self.history)
+
+# core/domain/operating_system/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'OSInfo'
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/operating_system/operating_system.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class OSInfo:
+    system: str | None
+    release: str | None
+    kernel: str | None
+    architecture: str | None
+
+# core/domain/system/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'OSInfo'
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/system/system.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class TemperatureCapabilitiesInfo:
+    cpu_sensor_available: bool
+    gpu_sensor_available: bool
+
+@dataclass(slots=True, frozen=True)
+class SystemInfo:
+    platform: PlatformType | None
+    device_name: str | None
+
+    cpu: CPUInfo | None
+    gpu: GPUInfo | None
+    npu: NPUInfo | None
+    tpu: TPUInfo | None
+    ram: RAMInfo | None
+    os: OSInfo | None
+    temperature: TemperatureCapabilitiesInfo | None
+
+# core/domain/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# core/domain/artifact.py
+
+logger = logging.getLogger(__name__)
+
+@dataclass(slots=True, frozen=True)
+class ResolvedModelArtifact:
+    path: Path
+    quantization: str
+
+# core/enums/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# core/enums/model.py
+
+logger = logging.getLogger(__name__)
+
+TaskType = _TaskType
+
+DeviceType = _DeviceType
+
+class ExportTarget(Enum):
+    X86_64 = 'x86_64'
+    ARM64 = 'arm64'
+    RISC_V = 'risc_v'  # для будущих edge-чипов
+
+class ReportFormat(Enum):
+    JSON = 'json'
+    CSV = 'csv'
+    MARKDOWN = 'markdown'
+    HTML = 'html'
+
+class QuantizationLevel(Enum):
+    FP64 = 'fp64'   # Двойная точность, нет оптимизации
+    FP32 = 'fp32'   # Полная точность, нет оптимизации
+    FP16 = 'fp16'   # Половинная точность, 2× ускорение на GPU
+    INT8 = 'int8'   # 8-битное квантование, 4× ускорение, потеря точности
+    INT4 = 'int4'   # 4-битное квантование, экспериментально
+
+class ModelFormat(Enum):
+    PYTORCH = 'pytorch'
+    ONNX = 'onnx'
+    TENSORRT = 'tensorrt'
+    OPENVINO = 'openvino'
+    RKNN = 'rknn'
+    COREML = 'coreml'  # для Apple Silicon (будущее)
+
+_ULTRALYTICS_EXPORT_FORMAT: dict[str, str | None] = {
+    ModelFormat.PYTORCH.value: None,
+    ModelFormat.ONNX.value: 'onnx',
+    ModelFormat.TENSORRT.value: 'engine',
+    ModelFormat.OPENVINO.value: 'openvino',
+    ModelFormat.RKNN.value: 'rknn',
+    ModelFormat.COREML.value: 'coreml',
+}
+
+_EXPORT_EXTENSION: dict[str, str] = {
+    ModelFormat.ONNX.value: '.onnx',
+    ModelFormat.TENSORRT.value: '.engine',
+    ModelFormat.OPENVINO.value: '_openvino_model',  # экспорт создаёт директорию
+    ModelFormat.RKNN.value: '.rknn',
+    ModelFormat.COREML.value: '.mlpackage',
+}
+
+def ultralytics_export_format(fmt: str) -> str | None:
+    return _ULTRALYTICS_EXPORT_FORMAT.get(fmt)
+
+def export_extension(fmt: str) -> str | None:
+    return _EXPORT_EXTENSION.get(fmt)
+
+class ModelSize(Enum):
+    NANO = 'n'      # ~3M params, fastest
+    SMALL = 's'     # ~11M params, balanced
+    MEDIUM = 'm'    # ~26M params, accurate
+    LARGE = 'l'     # ~44M params, high-accuracy
+    XLARGE = 'x'    # ~68M params, max-accuracy
+
+class ModelFamily(Enum):
+    YOLOV5 = 'yolov5'
+    YOLOV8 = 'yolov8'
+    YOLOV10 = 'yolov10'
+    YOLOV11 = 'yolov11'
+    YOLOV12 = 'yolov12'  # placeholder для будущих версий
+    YOLO26 = 'yolo26'
+    PRISM = 'prism'      # Acmenra custom architecture
+    RTDETR = 'rtdetr'    # Real-time DETR
+    EFFICIENTDET = 'efficientdet'
+
+class MetricType(Enum):
+    FPS = 'fps'
+    GPU_UTIL = 'gpu_utilization'
+    CPU_UTIL = 'cpu_utilization'
+    VRAM_USAGE = 'vram_usage_mb'
+    RAM_USAGE = 'ram_usage_mb'
+
+    POWER_WATT = 'power_watt'
+    TEMP_GPU_C = 'temp_gpu_c'
+    TEMP_CPU_C = 'temp_cpu_c'
+
+    MAP_50 = 'map_50'
+    MAP_50_95 = 'map_50_95'
+
+class Coco(Enum):
+    person = 0
+
+    @classmethod
+    def has_value(cls, value: int) -> bool:
+        return value in cls._value2member_map_
+
+    @classmethod
+    def name_of(cls, value: int) -> str:
+        if not cls.has_value(value):
+            raise ValueError(f"Class ID {value} is not in COCO 2017 dataset.")
+        return cls(value).name.replace('_', ' ').title()
+
+    @classmethod
+    def to_dict(cls) -> dict:
+        return {member.value: member.name.replace('_', ' ').title() for member in cls}
+
+# core/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/config/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/config/config_reader.py
+
+logger = logging.getLogger(__name__)
+
+def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
+    runs = []
+    for run_data in benchmark_data.runs:
+        models = tuple(
+            ModelConfig(size=size, family=model.family)
+            for model in run_data.models
+            for size in model.sizes
+        )
+        runs.append(BenchmarkCase(models=models))
+
+    payload = benchmark_data.model_dump(
+        exclude={"runs", "formats", "quantization", "task_type", "models_dir"}
+    )
+    payload["runs"] = tuple(runs)
+    payload["formats"] = tuple(benchmark_data.formats)
+    payload["quantization"] = tuple(
+        benchmark_data.quantization or [QuantizationLevel.FP32.value]
+    )
+    payload["task_type"] = (
+        TaskType(benchmark_data.task_type)
+        if benchmark_data.task_type is not None
+        else TaskType.DETECT
+    )
+    payload["devices"] = tuple(DeviceType(dev) for dev in benchmark_data.devices) if benchmark_data.devices else None
+
+    if benchmark_data.models_dir:
+        payload["models_dir"] = Path(benchmark_data.models_dir).resolve()
+    else:
+        payload["models_dir"] = Path("./models_dir").resolve()
+    payload["run_validation"] = benchmark_data.run_validation
+    return BenchmarkConfig(**payload)
+
+def read_yaml(path: Path | str) -> Config:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    with path.open("r", encoding="utf-8") as handle:
+        try:
+            raw = yaml.safe_load(handle) or {}
+        except yaml.YAMLError as e:
+            raise ConfigError(f"Invalid YAML: {e}") from e
+
+    schema = ConfigsValidator.validate(raw)
+
+    benchmark_data = schema.benchmark
+    benchmark: BenchmarkConfig | None = None
+    if benchmark_data is not None:
+        benchmark = _build_benchmark_config(benchmark_data)
+
+    output_data = schema.output
+    output = ReportConfig(directory=Path(output_data.directory),
+                          formats=tuple(output_data.formats),
+                          use_timestamp=output_data.use_timestamp)
+
+    system_info_data = schema.system_info
+    system_info = None
+    if system_info_data is not None:
+        system_info = SystemInfoConfig(collect_cpu=system_info_data.collect_cpu,
+                                       collect_gpu=system_info_data.collect_gpu,
+                                       collect_power=system_info_data.collect_power,
+                                       collect_temperature=system_info_data.collect_temperature)
+
+    return Config(benchmark=benchmark, system_info=system_info, output=output)
+
+
+# infrastructure/config/configs_validator.py
+
+logger = logging.getLogger(__name__)
+
+class _ModelInputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    family: str
+    sizes: list[str] | None = None
+
+    @field_validator("family")
+    @classmethod
+    def validate_family(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("family must be a non-empty string")
+        return value.strip()
+
+    @field_validator("sizes")
+    @classmethod
+    def validate_sizes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if not value:
+            raise ValueError("sizes must be a non-empty list")
+        if not all(isinstance(item, str) and item.strip() for item in value):
+            raise ValueError("sizes must contain non-empty strings")
+        return [item.strip() for item in value]
+
+    @model_validator(mode="after")
+    def validate_size_presence(self) -> "_ModelInputSchema":
+        if self.sizes is None:
+            raise ValueError("entry must contain sizes")
+        return self
+
+class _BenchmarkRunInputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    models: list[_ModelInputSchema]
+
+    @field_validator("models")
+    @classmethod
+    def validate_models(cls, value: list[_ModelInputSchema]) -> list[_ModelInputSchema]:
+        if not value:
+            raise ValueError("models must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_sizes_for_multiple_models(self) -> "_BenchmarkRunInputSchema":
+        if len(self.models) > 1:
+            for model in self.models:
+                if model.sizes is not None and len(model.sizes) != 1:
+                    raise ValueError("multiple models in one run require a single size for each model")
+        return self
+
+class _BenchmarkConfigInputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    runs: list[_BenchmarkRunInputSchema] = Field(default_factory=list)
+    models_dir: str | None = None
+    run_validation: bool = True
+    formats: list[str] = Field(default_factory=list)
+    quantization: list[str] = Field(default_factory=list)
+    input_size: int | None = None
+    batch_size: int | None = None
+    warmup_iterations: int | None = None
+    main_iterations: int | None = None
+    confidence_threshold: float | None = None
+    test_images: str | None = None
+    task_type: str | None = None
+    devices: list[str] | None = None
+
+    @field_validator("task_type")
+    @classmethod
+    def validate_task_type(cls, value: str | TaskType | None) -> str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, TaskType):
+            return value.value.lower()
+
+        if not isinstance(value, str):
+            raise ValueError("task_type must be a non-empty string")
+
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("task_type must be a non-empty string")
+
+        try:
+            TaskType(normalized)
+        except ValueError as exc:
+            valid_values = sorted(item.value for item in TaskType)
+            raise ValueError(
+                f"task_type must contain valid values {valid_values}, got {value}"
+            ) from exc
+        return normalized
+
+    @field_validator("devices")
+    @classmethod
+    def validate_devices(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if not value:
+            raise ValueError("devices must be a non-empty list")
+
+        normalized = [item.strip().lower() for item in value]
+        valid_values = {item.value for item in DeviceType}
+        invalid_values = [item for item in normalized if item not in valid_values]
+
+        if invalid_values:
+            raise ValueError(
+                f"devices must contain valid values {sorted(valid_values)}, "
+                f"got {invalid_values}"
+            )
+        return normalized
+
+    @field_validator("formats")
+    @classmethod
+    def validate_formats(cls, value: list[str]) -> list[str]:
+        if not all(isinstance(item, str) and item.strip() for item in value):
+            raise ValueError("formats must contain non-empty strings")
+        return [item.strip() for item in value]
+
+    @field_validator("quantization", mode="before")
+    @classmethod
+    def normalize_quantization(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        return value
+
+    @field_validator("quantization")
+    @classmethod
+    def validate_quantization(cls, value: list[str]) -> list[str]:
+        if not all(isinstance(item, str) and item.strip() for item in value):
+            raise ValueError("quantization must contain non-empty strings")
+
+        normalized_values = [item.strip().lower() for item in value]
+        valid_values = {item.value for item in QuantizationLevel}
+        invalid_values = [
+            item for item in normalized_values
+            if item not in valid_values
+        ]
+        if invalid_values:
+            raise ValueError(
+                f"quantization must contain valid values {sorted(valid_values)}, "
+                f"got {invalid_values}"
+            )
+
+        return normalized_values
+
+    @field_validator("test_images")
+    @classmethod
+    def validate_test_images(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value or not value.strip():
+            raise ValueError("test_images must be a non-empty string")
+        return value.strip()
+
+class _SystemInfoInputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    collect_cpu: bool = False
+    collect_gpu: bool = False
+    collect_power: bool = False
+    collect_temperature: bool = False
+
+class _OutputInputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    directory: str
+    formats: list[str] = Field(default_factory=list)
+    timestamp: bool = False
+    use_timestamp: bool = False
+
+    @field_validator("directory")
+    @classmethod
+    def validate_directory(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("output.directory must be a non-empty string")
+        return value.strip()
+
+    @field_validator("formats")
+    @classmethod
+    def validate_formats(cls, value: list[str]) -> list[str]:
+        if not all(isinstance(item, str) and item.strip() for item in value):
+            raise ValueError("output.formats must contain non-empty strings")
+        return [item.strip() for item in value]
+
+    @model_validator(mode="after")
+    def normalize_timestamp(self) -> "_OutputInputSchema":
+        if self.timestamp or self.use_timestamp:
+            self.use_timestamp = True
+        return self
+
+class _ConfigInputSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark: _BenchmarkConfigInputSchema | None = None
+    system_info: _SystemInfoInputSchema | None = None
+    output: _OutputInputSchema
+
+class ConfigsValidator:
+    @classmethod
+    def validate(cls, raw_data: Any) -> _ConfigInputSchema:
+        if raw_data is None:
+            raw_data = {}
+        if not isinstance(raw_data, dict):
+            raise ConfigError("YAML root must be a mapping")
+
+        try:
+            return _ConfigInputSchema.model_validate(raw_data)
+        except ValidationError as exc:
+            raise ConfigError(cls._format_error(exc)) from exc
+
+    @staticmethod
+    def _format_error(exc: ValidationError) -> str:
+        first_error = exc.errors()[0]
+        location = ".".join(str(part) for part in first_error.get("loc", ()))
+        message = first_error.get("msg", "validation failed")
+        return f"{location or 'config'}: {message}" if location else message
+
+# infrastructure/config/default_config.py
+
+logger = logging.getLogger(__name__)
+
+def build_default_config() -> Config:
+    models = tuple(
+        ModelConfig(
+            family=family.value,
+            size=size.value,
+        )
+        for family in ModelFamily
+        for size in ModelSize
+    )
+
+    return Config(
+        benchmark=BenchmarkConfig(
+            runs=(BenchmarkCase(models=models),),
+            devices=(DeviceType.AUTO,),
+            models_dir=Path("./models"),
+            formats=tuple(model_format.value for model_format in ModelFormat),
+            quantization=(QuantizationLevel.FP32.value,),
+            task_type=TaskType.DETECT,
+            input_size=640,
+            batch_size=1,
+            warmup_iterations=10,
+            main_iterations=100,
+            confidence_threshold=0.25,
+            test_images="./data/test_images",
+        ),
+        system_info=SystemInfoConfig(
+            collect_cpu=True,
+            collect_gpu=True,
+            collect_power=True,
+            collect_temperature=True,
+        ),
+        output=ReportConfig(
+            directory=Path("./results"),
+            formats=("json", "csv", "markdown"),
+            use_timestamp=True,
+        ),
+    )
+
+# infrastructure/exceptions/config/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'ConfigError'
+]
+
+# infrastructure/exceptions/quantization/errors.py
+
+logger = logging.getLogger(__name__)
+
+class ConfigError(ValueError):
+    """Configuration validation error."""
+
+# infrastructure/exceptions/quantization/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CalibrationDataError",
+    "ModelExportError",
+    "NCNNQuantizationError",
+    "ONNXQuantizationError",
+    "OpenVINOQuantizationError",
+    "PyTorchQuantizationError",
+    "TensorRTQuantizationError",
+]
+
+# infrastructure/exceptions/quantization/errors.py
+
+logger = logging.getLogger(__name__)
+
+class CalibrationDataError(ModelError):
+    pass
+
+class ModelExportError(ModelError):
+    pass
+
+class ONNXQuantizationError(ModelError):
+    pass
+
+class OpenVINOQuantizationError(ModelError):
+    pass
+
+class PyTorchQuantizationError(ModelError):
+    pass
+
+class TensorRTQuantizationError(ModelError):
+    pass
+
+class NCNNQuantizationError(ModelError):
+    pass
+
+# infrastructure/exceptions/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    # Base
+    "RaBenchmarkException",
+    "ConfigError",
+    "DatasetError",
+    "ModelError",
+    # Quantization & Export
+    "CalibrationDataError",
+    "ModelExportError",
+    "NCNNQuantizationError",
+    "ONNXQuantizationError",
+    "OpenVINOQuantizationError",
+    "PyTorchQuantizationError",
+    "TensorRTQuantizationError",
+]
+
+# infrastructure/exceptions/base.py
+
+logger = logging.getLogger(__name__)
+
+class RaBenchmarkException(Exception):
+    pass
+
+class ConfigError(RaBenchmarkException):
+    pass
+
+class DatasetError(RaBenchmarkException):
+    pass
+
+class ModelError(RaBenchmarkException):
+    pass
+
+# infrastructure/hardware/collectors/cpu/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'CPUCollector'
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/hardware/collectors/cpu/collector.py
+
+logger = logging.getLogger(__name__)
+
+class CPUCollector(BaseHardwareCollector):
+    def __init__(self, system_info_config: SystemInfoConfig) -> None:
+        super().__init__(system_info_config)
+        psutil.cpu_percent(interval=None)
+        self._hardware_info = self._gather_static_info()
+
+    def get_hardware_info(self) -> CPUInfo:
+        return self._hardware_info
+
+    def get_metrics(self) -> MetricStatistics:
+        metric = MetricStatistics(unit="percent")
+        metric.history.append(
+            DataPoint(
+                time_in_ms=time.perf_counter() * 1000.0,
+                value=psutil.cpu_percent(interval=None),
+            )
+        )
+        return metric
+
+    def _gather_static_info(self) -> CPUInfo:
+        return CPUInfo(
+            name=self._collect_cpu_name(),
+            architecture=empty_to_none(platform.machine()),
+            physical_cores=psutil.cpu_count(logical=False),
+            logical_cores=psutil.cpu_count(logical=True) or os.cpu_count(),
+            max_frequency_mhz=self._collect_max_frequency_mhz(),
+        )
+
+    def _collect_cpu_name(self) -> str | None:
+        cpuinfo_name = self._collect_cpu_name_from_cpuinfo()
+        if cpuinfo_name is not None:
+            return cpuinfo_name
+        system = platform.system()
+        if system == "Darwin":
+            return self._collect_macos_cpu_name()
+        if system == "Linux":
+            return self._collect_linux_cpu_name()
+        if system == "Windows":
+            return empty_to_none(platform.processor())
+
+        return empty_to_none(platform.processor())
+
+    def _collect_cpu_name_from_cpuinfo(self) -> str | None:
+        try:
+            import cpuinfo
+            cpu_info = cpuinfo.get_cpu_info()
+            return empty_to_none(cpu_info.get("brand_raw", ""))
+        except (ImportError, Exception):
+            return None
+
+    def _collect_macos_cpu_name(self) -> str | None:
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                check=True, capture_output=True, text=True, timeout=3,
+            )
+            return empty_to_none(result.stdout)
+        except (OSError, subprocess.SubprocessError):
+            return empty_to_none(platform.processor())
+
+    def _collect_linux_cpu_name(self) -> str | None:
+        cpuinfo_text = read_text(Path("/proc/cpuinfo"))
+        for line in cpuinfo_text.splitlines():
+            if self._is_cpu_name_line(line):
+                _, _, value = line.partition(":")
+                cpu_name = empty_to_none(value)
+                if cpu_name is not None:
+                    return cpu_name
+
+        lscpu_name = self._collect_linux_cpu_name_from_lscpu()
+        if lscpu_name is not None:
+            return lscpu_name
+
+        return empty_to_none(platform.processor())
+
+    def _is_cpu_name_line(self, line: str) -> bool:
+        normalized_line = line.lower()
+        key, _, value = normalized_line.partition(":")
+        key = key.strip()
+        value = value.strip()
+
+        if key in {"model name", "hardware", "model"}:
+            return bool(value)
+        return key == "processor" and bool(value) and not value.isdigit()
+
+    def _collect_linux_cpu_name_from_lscpu(self) -> str | None:
+        try:
+            result = subprocess.run(
+                ["lscpu"], check=True, capture_output=True, text=True, timeout=3,
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("Model name:"):
+                    _, _, value = line.partition(":")
+                    return empty_to_none(value)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
+
+    def _collect_max_frequency_mhz(self) -> float | None:
+        frequency = psutil.cpu_freq()
+        if frequency is None:
+            return None
+        if frequency.max and frequency.max > 0:
+            return float(frequency.max)
+        if frequency.current and frequency.current > 0:
+            return float(frequency.current)
+        return None
+
+# infrastructure/hardware/collectors/gpu/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'GPUCollector'
+]
+
+__version__ = "0.0.0.1"
+
+
+logger = logging.getLogger(__name__)
+
+class GPUCollector(BaseHardwareCollector):
+
+    def __init__(self, system_info_config: SystemInfoConfig) -> None:
+        super().__init__(system_info_config)
+        self._nvml = NVMLWorker()
+        self._smi = SMIWorker()
+        self._mps = MPSWorker()
+        self._platform_type = self._detect_platform()
+
+    def get_hardware_info(self) -> GPUInfo:
+        if self._nvml.is_available():
+            return self._nvml.get_info()
+        if self._smi.is_available():
+            return self._smi.get_info()
+        if self._mps.is_available():
+            return self._mps.get_info()
+        return GPUInfo(name=None, memory_mb=None, driver_version=None, cuda_version=None)
+
+    def _build_metric(self, value: float | int | None, unit: str) -> MetricStatistics | None:
+        if value is None:
+            return None
+
+        metric = MetricStatistics(unit=unit)
+        metric.history.append(DataPoint( time_in_ms=time.perf_counter() * 1000.0, value=float(value)))
+        return metric
+
+    def _detect_platform(self) -> PlatformType:
+        if platform.system() == "Darwin":
+            return PlatformType.DESKTOP
+
+        device_model = read_text(Path("/proc/device-tree/model")).lower()
+
+        if "raspberry pi" in device_model:
+            return PlatformType.RASPBERRY_PI
+        if "jetson" in device_model or "orin" in device_model or Path("/etc/nv_tegra_release").exists():
+            return PlatformType.JETSON
+        if "intel nuc" in device_model:
+            return PlatformType.INTEL_NUC
+        if "hailo" in device_model:
+            return PlatformType.HAILO
+        if "orange pi" in device_model:
+            return PlatformType.UNKNOWN
+
+        system = platform.system()
+        if system in {"Windows", "Linux"}:
+            return PlatformType.DESKTOP
+
+        return PlatformType.UNKNOWN
+
+
+logger = logging.getLogger(__name__)
+
+class GPUCollector(BaseHardwareCollector):
+    def __init__(self, system_info_config: SystemInfoConfig) -> None:
+        super().__init__(system_info_config)
+        self._nvml = NVMLWorker()
+        self._smi = SMIWorker()
+        self._mps = MPSWorker()
+        self._platform_type = self._detect_platform()
+
+    def get_hardware_info(self) -> GPUInfo:
+        if self._nvml.is_available():
+            return self._nvml.get_info()
+        if self._smi.is_available():
+            return self._smi.get_info()
+        if self._mps.is_available():
+            return self._mps.get_info()
+
+        return GPUInfo(name=None, memory_mb=None, driver_version=None, cuda_version=None)
+
+    def _build_metric(self, value: float | int | None, unit: str) -> MetricStatistics | None:
+        if value is None:
+            return None
+
+        metric = MetricStatistics(unit=unit)
+        metric.history.append(DataPoint(time_in_ms=time.perf_counter() * 1000.0, value=float(value)))
+        return metric
+
+    def _detect_platform(self) -> PlatformType:
+        if platform.system() == "Darwin":
+            return PlatformType.DESKTOP
+
+        device_model = read_text(Path("/proc/device-tree/model")).lower()
+
+        if "raspberry pi" in device_model:
+            return PlatformType.RASPBERRY_PI
+        if "jetson" in device_model or "orin" in device_model or Path("/etc/nv_tegra_release").exists():
+            return PlatformType.JETSON
+        if "intel nuc" in device_model:
+            return PlatformType.INTEL_NUC
+        if "hailo" in device_model:
+            return PlatformType.HAILO
+        if "orange pi" in device_model:
+            return PlatformType.UNKNOWN
+
+        system = platform.system()
+        if system in {"Windows", "Linux"}:
+            return PlatformType.DESKTOP
+
+        return PlatformType.UNKNOWN
+
+logger = logging.getLogger(__name__)
+
+class MPSWorker:
+    def __init__(self) -> None:
+        self._is_macos = platform.system() == "Darwin"
+        self._chip_name = self._get_chip_name() if self._is_macos else None
+
+    def is_available(self) -> bool:
+        return self._is_macos and self._chip_name is not None
+
+    def get_info(self) -> GPUInfo:
+        if not self.is_available():
+            return GPUInfo(name=None, memory_mb=None, driver_version=None, cuda_version=None)
+
+        unified_memory_mb = None
+        try:
+            import psutil
+            unified_memory_mb = int(psutil.virtual_memory().total / 1024 / 1024)
+        except Exception:
+            pass
+
+        return GPUInfo(
+            name=self._chip_name,
+            memory_mb=unified_memory_mb,
+            driver_version=platform.mac_ver()[0],
+            cuda_version=None,
+        )
+
+    def get_utilization(self) -> float | None:
+        return None
+
+    def get_memory_used_mb(self) -> float | None:
+        return None
+
+    def get_temperature(self) -> float | None:
+        temp = self._temperature_psutil()
+        if temp is not None:
+            return temp
+        return self._temperature_powermetrics()
+
+    def get_power_watts(self) -> float | None:
+        return None
+
+    def _get_chip_name(self) -> str | None:
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                check=True, capture_output=True, text=True, timeout=2,
+            )
+            return result.stdout.strip()
+        except Exception as e:
+            logger.debug("Не удалось получить имя чипа macOS: %s", e)
+            return None
+
+    def _temperature_psutil(self) -> float | None:
+        try:
+            import psutil
+            if not hasattr(psutil, "sensors_temperatures"):
+                return None
+
+            temps = psutil.sensors_temperatures()
+            for sensor_name, readings in temps.items():
+                if "cpu" not in sensor_name.lower() and "gpu" not in sensor_name.lower():
+                    continue
+                for reading in readings:
+                    if 0 <= reading.current < 150:
+                        return reading.current
+        except (AttributeError, OSError, ImportError) as error:
+            logger.debug("psutil не вернул MPS temperature: %s", error)
+
+        return None
+
+    def _temperature_powermetrics(self) -> float | None:
+        try:
+            result = subprocess.run(
+                ["powermetrics", "-n", "1", "--samplers", "thermal"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+
+            for line in result.stdout.splitlines():
+                for pattern in (
+                        r"CPU die temperature:\s+([\d.]+)\s+C",
+                        r"GPU die temperature:\s+([\d.]+)\s+C",
+                        r"SoC.*temperature:\s+([\d.]+)\s+C",
+                ):
+                    match = re.search(pattern, line)
+                    if match:
+                        temp = float(match.group(1))
+                        if 0 <= temp < 150:
+                            return temp
+        except (OSError, subprocess.SubprocessError, ValueError, subprocess.TimeoutExpired) as error:
+            logger.debug("powermetrics не вернул MPS temperature: %s", error)
+
+        return None
+
+# infrastructure/hardware/collectors/gpu/nvml_worker.py
+
+logger = logging.getLogger(__name__)
+
+class NVMLWorker:
+    def __init__(self) -> None:
+        self._pynvml: Any = None
+        self._handle: Any = None
+        self._init_nvml()
+
+    def _init_nvml(self) -> None:
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            if pynvml.nvmlDeviceGetCount() > 0:
+                self._pynvml = pynvml
+                self._handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        except Exception:
+            pass
+
+    def is_available(self) -> bool:
+        return self._pynvml is not None and self._handle is not None
+
+    def get_info(self) -> GPUInfo:
+        if not self.is_available():
+            return GPUInfo(name=None, memory_mb=None, driver_version=None, cuda_version=None)
+
+        name = self._pynvml.nvmlDeviceGetName(self._handle)
+        if isinstance(name, bytes):
+            name = name.decode("utf-8", errors="ignore")
+
+        memory = self._pynvml.nvmlDeviceGetMemoryInfo(self._handle)
+        driver = self._pynvml.nvmlSystemGetDriverVersion()
+        if isinstance(driver, bytes):
+            driver = driver.decode("utf-8", errors="ignore")
+
+        cuda_version = None
+        try:
+            ver = self._pynvml.nvmlSystemGetCudaDriverVersion()
+            cuda_version = f"{ver // 1000}.{(ver % 1000) // 10}"
+        except Exception:
+            pass
+
+        return GPUInfo(
+            name=name,
+            memory_mb=int(memory.total / 1024 / 1024),
+            driver_version=driver,
+            cuda_version=cuda_version,
+        )
+
+    def get_utilization(self) -> float | None:
+        if not self.is_available(): return None
+        try:
+            return float(self._pynvml.nvmlDeviceGetUtilizationRates(self._handle).gpu)
+        except Exception:
+            return None
+
+    def get_memory_used_mb(self) -> float | None:
+        if not self.is_available(): return None
+        try:
+            return float(self._pynvml.nvmlDeviceGetMemoryInfo(self._handle).used / 1024 / 1024)
+        except Exception:
+            return None
+
+    def get_temperature(self) -> float | None:
+        if not self.is_available(): return None
+        try:
+            return float(self._pynvml.nvmlDeviceGetTemperature(self._handle, self._pynvml.NVML_TEMPERATURE_GPU))
+        except Exception:
+            return None
+
+    def get_power_watts(self) -> float | None:
+        if not self.is_available(): return None
+        try:
+            return float(self._pynvml.nvmlDeviceGetPowerUsage(self._handle) / 1000)
+        except Exception:
+            return None
+
+# infrastructure/hardware/collectors/gpu/smi_worker.py
+
+logger = logging.getLogger(__name__)
+
+class SMIWorker:
+
+    def __init__(self) -> None:
+        self._available = shutil.which("nvidia-smi") is not None
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def get_info(self) -> GPUInfo:
+        values = self._query("name,memory.total,driver_version")
+        if not values or len(values) < 3:
+            return GPUInfo(name=None, memory_mb=None, driver_version=None, cuda_version=None)
+        return GPUInfo(name=values[0], memory_mb=to_int(values[1]), driver_version=values[2], cuda_version=None)
+
+    def get_float(self, query: str) -> float | None:
+        values = self._query(query)
+        return to_float(values[0]) if values else None
+
+    def _query(self, query: str) -> list[str] | None:
+        if not self._available:
+            return None
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits", "-i", "0"],
+                check=True, capture_output=True, text=True, timeout=3,
+            )
+            first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+            return [v.strip() for v in first_line.split(",")] if first_line else None
+        except Exception:
+            return None
+
+# infrastructure/hardware/collectors/npu/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/hardware/collectors/npu/collector.py
+
+logger = logging.getLogger(__name__)
+
+class NPUCollector(BaseHardwareCollector):
+    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+        super().__init__(system_info_config)
+        self._hailo = HailoWorker()
+        self._hardware_info = self._gather_static_info()
+
+    def get_hardware_info(self) -> NPUInfo:
+        return self._hardware_info
+
+    def get_metrics(self) -> dict[str, MetricStatistics] | None:
+        if not self._hailo.is_available():
+            return None
+
+        metrics = {}
+        temp = self._hailo.get_temperature()
+
+        if temp is not None:
+            metric = MetricStatistics(unit="celsius")
+            metric.history.append(
+                DataPoint(
+                    time_in_ms=time.perf_counter() * 1000.0,
+                    value=temp,
+                )
+            )
+            metrics["temperature"] = metric
+
+        return metrics if metrics else None
+
+    def _gather_static_info(self) -> NPUInfo:
+        if self._hailo.is_available():
+            return self._hailo.get_info()
+
+        return NPUInfo(name=None, architecture=None)
+
+logger = logging.getLogger(__name__)
+
+class HailoWorker:
+    def __init__(self) -> None:
+        self._is_linux = platform.system() == "Linux"
+        self._is_available = self._check_availability() if self._is_linux else False
+
+    def _check_availability(self) -> bool:
+        return (
+                Path("/sys/class/hailo/hailo0/device/temperature").exists() or
+                Path("/sys/class/hailo_chardev/hailo0/temperature").exists() or
+                self._find_hwmon_temp() is not None
+        )
+
+    def is_available(self) -> bool:
+        return self._is_linux and self._is_available
+
+    def get_info(self) -> NPUInfo:
+        if not self.is_available():
+            return NPUInfo(name=None, architecture=None)
+
+        import platform as plt
+        return NPUInfo(
+            name="Hailo-8 / Hailo-8L",
+            architecture=plt.machine(),
+        )
+
+    def get_temperature(self) -> float | None:
+        if not self.is_available():
+            return None
+
+        temp = self._temperature_hailo_sysfs()
+        if temp is not None:
+            return temp
+
+        return self._find_hwmon_temp()
+
+    def _find_hwmon_temp(self) -> float | None:
+        hwmon_root = Path("/sys/class/hwmon")
+        if not hwmon_root.exists():
+            return None
+
+        npu_driver_names = ("hailo", "npu", "neural")
+
+        for hwmon_dir in hwmon_root.iterdir():
+            try:
+                name_file = hwmon_dir / "name"
+                if not name_file.exists():
+                    continue
+
+                driver_name = name_file.read_text(encoding="utf-8", errors="ignore").strip().lower()
+                if not any(token in driver_name for token in npu_driver_names):
+                    continue
+
+                for temp_input in sorted(hwmon_dir.glob("temp*_input")):
+                    try:
+                        raw_value = temp_input.read_text(encoding="utf-8", errors="ignore").strip()
+                        temp = float(raw_value) / 1000.0
+                        if 0 <= temp < 150:
+                            return temp
+                    except (OSError, ValueError):
+                        continue
+            except OSError:
+                continue
+        return None
+
+    def _temperature_hailo_sysfs(self) -> float | None:
+        hailo_paths = (
+            Path("/sys/class/hailo/hailo0/device/temperature"),
+            Path("/sys/class/hailo_chardev/hailo0/temperature"),
+        )
+
+        for path in hailo_paths:
+            if path.exists():
+                try:
+                    temp = float(path.read_text(encoding="utf-8", errors="ignore").strip())
+                    if 0 <= temp < 150:
+                        return temp
+                except (OSError, ValueError) as error:
+                    logger.debug("Hailo sysfs %s не вернул температуру: %s", path, error)
+                    continue
+        return None
+
+    def get_utilization(self) -> float | None:
+        return None
+
+    def get_power_watts(self) -> float | None:
+        return None
+
+# infrastructure/hardware/collectors/pwr/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/hardware/collectors/power.py
+
+logger = logging.getLogger(__name__)
+
+def collect_cpu_power_watts() -> float | None:
+    system = platform.system()
+    if system == "Darwin":
+        return _collect_macos_cpu_power_watts()
+    if system == "Linux":
+        return _collect_linux_rapl_cpu_power_watts()
+    return None
+
+def _collect_macos_cpu_power_watts() -> float | None:
+    try:
+        result = subprocess.run(
+            ["powermetrics", "-n", "1", "--samplers", "cpu_power"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    return _parse_macos_cpu_power(result.stdout)
+
+def _parse_macos_cpu_power(output: str) -> float | None:
+    patterns = (
+        r"CPU Power:\s+([\d.]+)\s+mW",
+        r"CPU Power:\s+([\d.]+)\s+W",
+        r"Processor Power:\s+([\d.]+)\s+mW",
+        r"Processor Power:\s+([\d.]+)\s+W",
+    )
+
+    for line in output.splitlines():
+        for pattern in patterns:
+            match = re.search(pattern, line)
+            if match is None:
+                continue
+
+            value = float(match.group(1))
+            if "mW" in pattern:
+                value = value / 1000.0
+
+            if _is_valid_power(value):
+                return value
+
+    return None
+
+def _collect_linux_rapl_cpu_power_watts() -> float | None:
+    energy_path = _find_rapl_energy_path()
+    if energy_path is None:
+        return None
+
+    energy_before = read_int(energy_path)
+    if energy_before is None:
+        return None
+
+    measured_at = time.perf_counter()
+    time.sleep(0.1)
+
+    energy_after = read_int(energy_path)
+    if energy_after is None:
+        return None
+
+    elapsed_seconds = time.perf_counter() - measured_at
+    if elapsed_seconds <= 0:
+        return None
+
+    energy_delta_uj = energy_after - energy_before
+    if energy_delta_uj < 0:
+        return None
+
+    power_watts = (energy_delta_uj / 1_000_000.0) / elapsed_seconds
+    if _is_valid_power(power_watts):
+        return power_watts
+
+    return None
+
+def _find_rapl_energy_path() -> Path | None:
+    powercap_root = Path("/sys/class/powercap")
+    if not powercap_root.exists():
+        return None
+
+    candidates = sorted(powercap_root.glob("intel-rapl*/energy_uj"))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    return None
+
+def _is_valid_power(power_watts: float) -> bool:
+    return isinstance(power_watts, (int, float)) and 0 <= power_watts < 1000
+
+# infrastructure/hardware/collectors/ram/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'RAMCollector'
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/hardware/collectors/collector.py
+
+logger = logging.getLogger(__name__)
+
+class RAMCollector(BaseHardwareCollector):
+    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+        super().__init__(system_info_config)
+        self._hardware_info = self._gather_static_info()
+
+    def get_hardware_info(self) -> RAMInfo:
+        return self._hardware_info
+
+    def _gather_static_info(self) -> RAMInfo:
+        total_mb = None
+        ram_type = None
+
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            total_mb = int(mem.total / (1024 ** 2))
+        except ImportError:
+            logger.warning("Модуль psutil не установлен, объем RAM определить не удалось.")
+
+        ram_type = self._get_ram_type()
+
+        return RAMInfo(
+            total_mb=total_mb,
+            type=ram_type,
+            speed_mhz=None
+        )
+
+    def _get_ram_type(self) -> str | None:
+        system = platform.system()
+
+        if system == "Darwin":
+            return "Unified Memory"
+
+        elif system == "Linux":
+            try:
+                model = subprocess.run(
+                    ["cat", "/proc/device-tree/model"],
+                    capture_output=True, text=True, timeout=2
+                ).stdout.strip().lower()
+
+                if "raspberry" in model:
+                    return "LPDDR"
+                elif "jetson" in model or "orin" in model:
+                    return "LPDDR"
+            except Exception:
+                pass
+
+        return None
+
+    def get_metrics(self) -> None:
+        return None
+
+# infrastructure/hardware/collectors/tmp/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'RAMCollector'
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/hardware/collectors/collector.py
+
+logger = logging.getLogger(__name__)
+
+def collect_temperature() -> TemperatureCapabilitiesInfo:
+    cpu_available = _check_cpu_temperature_available()
+    gpu_available = _check_gpu_temperature_available()
+
+    return TemperatureCapabilitiesInfo(
+        cpu_sensor_available=cpu_available,
+        gpu_sensor_available=gpu_available
+    )
+
+def collect_cpu_temperature_celsius() -> float | None:
+    system = platform.system()
+
+    if system == "Darwin":
+        try:
+            from infrastructure.hardware.collectors.gpu.mps_worker import MPSCollector
+
+            temperature = MPSCollector().tmp()
+            if temperature is not None:
+                return temperature
+        except Exception as error:
+            logger.debug("Не удалось получить температуру через MPSCollector: %s", error)
+
+    temperature = _get_cpu_temperature_system()
+    if temperature is not None:
+        return temperature
+
+    temperature = _get_cpu_temperature_thermal_zone()
+    if temperature is not None:
+        return temperature
+
+    if system == "Linux":
+        try:
+            from infrastructure.hardware.collectors.npu import NPUCollector
+
+            return NPUCollector().tmp()
+        except Exception as error:
+            logger.debug("Не удалось получить температуру через NPUCollector: %s", error)
+
+    return None
+
+def _check_cpu_temperature_available() -> bool:
+    return collect_cpu_temperature_celsius() is not None
+
+def _check_gpu_temperature_available() -> bool:
+    try:
+        if _check_nvidia_gpu():
+            return True
+    except Exception as error:
+        logger.debug("Не удалось проверить NVIDIA GPU через pynvml: %s", error)
+
+    try:
+        if _check_nvidia_gpu_via_smi():
+            return True
+    except Exception as error:
+        logger.debug("Не удалось проверить NVIDIA GPU через nvidia-smi: %s", error)
+
+    try:
+        if _check_platform_gpu():
+            return True
+    except Exception as error:
+        logger.debug("Не удалось проверить платформенный GPU-датчик: %s", error)
+    return False
+
+def _get_cpu_temperature_system() -> float | None:
+    try:
+        import psutil
+        if hasattr(psutil, 'sensors_temperatures'):
+            temps = psutil.sensors_temperatures()
+            if temps:
+                for readings in temps.values():
+                    if readings and isinstance(readings, list):
+                        for reading in readings:
+                            temp = reading.current
+                            if _is_valid_temperature(temp):
+                                return temp
+    except (AttributeError, OSError, ImportError) as error:
+        logger.debug("psutil не вернул CPU temperature: %s", error)
+
+    if platform.system() == "Windows":
+        return _get_cpu_temperature_windows_wmi()
+    return None
+
+def _get_cpu_temperature_windows_wmi() -> float | None:
+    try:
+        import wmi
+        w = wmi.WMI(namespace="root\\cimv2")
+        for item in w.query(
+                "SELECT * FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"
+        ):
+            if hasattr(item, 'Temperature') and item.Temperature:
+                temp_celsius = float(item.Temperature) / 10.0
+                if _is_valid_temperature(temp_celsius):
+                    return temp_celsius
+            if hasattr(item, 'HighPrecisionTemperature') and item.HighPrecisionTemperature:
+                temp_celsius = float(item.HighPrecisionTemperature) / 100.0
+                if _is_valid_temperature(temp_celsius):
+                    return temp_celsius
+    except:
+        logger.debug("WMI не вернул CPU temperature")
+
+    return None
+
+def _get_cpu_temperature_thermal_zone() -> float | None:
+    for zone_path in sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp")):
+        temperature = _read_temperature_path(zone_path)
+        if temperature is not None:
+            return temperature
+
+    for zone_path in sorted(Path("/sys/devices/virtual/thermal").glob("thermal_zone*/temp")):
+        temperature = _read_temperature_path(zone_path)
+        if temperature is not None:
+            return temperature
+
+    for hwmon_path in sorted(Path("/sys/class/hwmon").glob("hwmon*/temp*_input")):
+        temperature = _read_temperature_path(hwmon_path)
+        if temperature is not None:
+            return temperature
+
+    thermal_zones = [
+        "/sys/class/thermal/thermal_zone0/temp",
+        "/sys/devices/virtual/thermal/thermal_zone0/temp",
+        "/proc/acpi/thermal_cooling/THM0/temperature",
+    ]
+
+    for zone_path in thermal_zones:
+        temperature = _read_temperature_path(Path(zone_path))
+        if temperature is not None:
+            return temperature
+    return None
+
+def _read_temperature_path(path: Path) -> float | None:
+    if not path.exists():
+        return None
+
+    try:
+        raw_value = path.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError as error:
+        logger.debug("Не удалось прочитать temperature path %s: %s", path, error)
+        return None
+
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", raw_value)
+    if match is None:
+        return None
+
+    try:
+        temperature = float(match.group(0))
+    except ValueError:
+        return None
+
+    if temperature >= 1000:
+        temperature = temperature / 1000.0
+
+    if _is_valid_temperature(temperature):
+        return temperature
+
+    return None
+
+def _check_nvidia_gpu_via_smi() -> bool:
+    try:
+        result = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            text=True,
+        )
+        for line in result.strip().splitlines():
+            temp = float(line.strip())
+            if _is_valid_temperature(temp):
+                return True
+    except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            ValueError,
+            OSError,
+    ) as error:
+        logger.debug("nvidia-smi не вернул GPU temperature: %s", error)
+
+    return False
+
+def _check_nvidia_gpu() -> bool:
+    try:
+        from pynvml import (
+            nvmlInit,
+            nvmlDeviceGetCount,
+            nvmlDeviceGetHandleByIndex,
+            nvmlDeviceGetTemperature,
+            NVML_TEMPERATURE_GPU
+        )
+        nvmlInit()
+        device_count = nvmlDeviceGetCount()
+        if device_count > 0:
+            handle = nvmlDeviceGetHandleByIndex(0)
+            temp = nvmlDeviceGetTemperature(handle, NVML_TEMPERATURE_GPU)
+            return _is_valid_temperature(temp)
+
+        return False
+    except ImportError:
+        return False
+    except Exception as error:
+        logger.debug("pynvml не вернул GPU temperature: %s", error)
+        return False
+
+def _check_platform_gpu() -> bool:
+    system = platform.system()
+
+    if system == "Linux" and os.path.exists("/boot/config.txt"):
+        try:
+            result = subprocess.check_output(
+                "vcgencmd measure_temp",
+                shell=True,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            )
+            output = result.decode().strip()
+            if "temp=" in output:
+                return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as error:
+            logger.debug("vcgencmd не вернул GPU temperature: %s", error)
+
+    if system == "Linux" and os.path.exists("/etc/nv_tegra_release"):
+        try:
+            tegra_zones = [
+                "/sys/devices/virtual/thermal/thermal_zone0/temp",
+                "/sys/devices/virtual/thermal/thermal_zone1/temp",
+            ]
+            for zone_path in tegra_zones:
+                if os.path.exists(zone_path):
+                    with open(zone_path, "r") as f:
+                        temp_raw = f.read().strip()
+                        # Для Jetson температуру нужно делить на 1000
+                        temp_celsius = float(temp_raw) / 1000.0
+                        if _is_valid_temperature(temp_celsius):
+                            return True
+        except (IOError, ValueError, OSError) as error:
+            logger.debug("Jetson thermal zones не вернули GPU temperature: %s", error)
+
+    return False
+
+def _is_valid_temperature(temp: float) -> bool:
+    return isinstance(temp, (int, float)) and 0 <= temp < 150
+
+# infrastructure/hardware/collectors/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+logger = logging.getLogger(__name__)
+
+HardwareInfoType = Union[CPUInfo, GPUInfo, NPUInfo, TPUInfo, RAMInfo, OSInfo, None]
+
+class BaseHardwareCollector(ABC):
+    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+        self.system_info_config = system_info_config
+
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__}>"
+
+    @abstractmethod
+    def get_hardware_info(self) -> HardwareInfoType:
+        pass
+
+    def get_metrics(self) -> MetricStatistics | dict[str, MetricStatistics] | None:
+        return None
+
+    def is_available(self) -> bool:
+        try:
+            return self.get_hardware_info() is not None
+        except Exception as e:
+            logger.debug("Компонент %s недоступен: %s", self.__class__.__name__, e)
+            return False
+
+# infrastructure/hardware/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+logger = logging.getLogger(__name__)
+
+class HardwareCollector:
+    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+        self.system_info_config = system_info_config or SystemInfoConfig(collect_cpu=True,
+                                                                         collect_gpu=True,
+                                                                         collect_power=False,
+                                                                         collect_temperature=False)
+        self.cpu_collector = CPUCollector(self.system_info_config)
+        self.gpu_collector = GPUCollector(self.system_info_config)
+        self.ram_collector = RAMCollector(self.system_info_config)
+        self.os_collector = OSCollector()
+
+    def get_system_info(self) -> SystemInfo:
+        cpu_info = self.cpu_collector.get_hardware_info()
+        gpu_info = self.gpu_collector.get_hardware_info() if self.system_info_config.collect_gpu else None
+        ram_info = self.ram_collector.get_hardware_info()
+        os_info = self.os_collector.get_hardware_info()
+
+        temp_capabilities = None
+        if self.system_info_config.collect_temperature:
+            temp_capabilities = collect_temperature()
+
+        return SystemInfo(platform=self.gpu_collector._detect_platform(),
+                          device_name=socket.gethostname(),
+                          cpu=cpu_info,
+                          gpu=gpu_info,
+                          npu=None,
+                          tpu=None,
+                          ram=ram_info,
+                          os=os_info,
+                          temperature=temp_capabilities)
+
+# infrastructure/metrics/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+]
+
+__version__ = "0.0.0.1"
+
+
+# infrastructure/metrics/collector.py
+
+logger = logging.getLogger(__name__)
+
+class CPUMetricsCollector(BaseMetricsCollector):
+    def __init__(self, cpu_collector: CPUCollector, interval_seconds: float = 1.0) -> None:
+        super().__init__()
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds должен быть больше 0")
+
+        self._history = []
+        self.interval_seconds = interval_seconds
+        self.cpu_collector = cpu_collector
+
+        self._cpu_utilization = MetricStatistics(unit="percent") # TODO args
+        self._cpu_power = MetricStatistics(unit="watt")
+        self._cpu_temperature = MetricStatistics(unit="celsius")
+        self._collect_cpu_power = True
+        self._collect_cpu_temperature = True
+        self._cpu_temperature_failures = 0
+        self._max_cpu_temperature_failures = 3
+
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    @property
+    def history(self) -> List[DataPoint]:
+        return self._history
+
+    def start(self) -> None:
+        thread = None
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+
+            self._cpu_utilization = MetricStatistics(unit="percent")
+            self._cpu_power = MetricStatistics(unit="watt")
+            self._cpu_temperature = MetricStatistics(unit="celsius")
+            self._collect_cpu_power = True
+            self._collect_cpu_temperature = True
+            self._cpu_temperature_failures = 0
+            self._stop_event.clear()
+            thread = threading.Thread(
+                target=self._collect_loop,
+                name="CPUMetricsCollector",
+                daemon=True,
+            )
+            self._thread = thread
+
+        if thread is not None:
+            thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+        thread = self._thread
+        if thread is None:
+            return
+
+        thread.join()
+        self._thread = None
+
+    def get(self) -> CPUMetrics:
+        cpu_utilization = MetricStatistics(unit=self._cpu_utilization.unit)
+        with self._lock:
+            cpu_utilization.history.extend(self._cpu_utilization.history)
+            cpu_power = _copy_metric_or_none(self._cpu_power)
+            cpu_temperature = _copy_metric_or_none(self._cpu_temperature)
+
+        return CPUMetrics(
+            cpu_power=cpu_power,
+            cpu_utilization=cpu_utilization,
+            cpu_temperature=cpu_temperature,
+        )
+
+    def _collect_loop(self) -> None:
+
+        while not self._stop_event.is_set():
+            try:
+                self._collect_once()
+            except Exception:
+                logger.exception("Ошибка при сборе метрик CPU, снимок пропущен")
+
+            self._stop_event.wait(self.interval_seconds)
+
+    def _collect_once(self) -> None:
+        cpu_utilization = self.cpu_collector.get_metrics()
+        cpu_power = collect_cpu_power_watts() if self._collect_cpu_power else None
+        cpu_temperature = (
+            collect_cpu_temperature_celsius()
+            if self._collect_cpu_temperature
+            else None
+        )
+
+        if cpu_power is None:
+            self._collect_cpu_power = False
+        if cpu_temperature is None:
+            self._cpu_temperature_failures += 1
+            if self._cpu_temperature_failures >= self._max_cpu_temperature_failures:
+                self._collect_cpu_temperature = False
+        else:
+            self._cpu_temperature_failures = 0
+
+        with self._lock:
+            self._cpu_utilization.history.extend(cpu_utilization.history)
+            _append_metric_sample(self._cpu_power, cpu_power)
+            _append_metric_sample(self._cpu_temperature, cpu_temperature)
+
+
+def _append_metric_sample(metric: MetricStatistics, value: float | int | None) -> None:
+    if value is None:
+        return
+
+    metric.history.append(
+        DataPoint(
+            time_in_ms=time.time_ns() // 1_000_000,
+            value=value,
+        )
+    )
+
+def _copy_metric_or_none(metric: MetricStatistics) -> MetricStatistics | None:
+    if not metric.history:
+        return None
+    copied_metric = MetricStatistics(unit=metric.unit)
+    copied_metric.history.extend(metric.history)
+    return copied_metric
+
+# infrastructure/metrics/gpu.py
+
+logger = logging.getLogger(__name__)
+
+class GPUMetricsCollector(BaseMetricsCollector):
+    def __init__(self,
+                 gpu_collector: GPUCollector,
+                 interval_seconds: float = 1.0) -> None:
+        super().__init__()
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds должен быть больше 0")
+
+        self.interval_seconds = interval_seconds
+        self.gpu_collector = gpu_collector
+        self._vram_usage = MetricStatistics(unit="megabyte")
+        self._gpu_power = MetricStatistics(unit="watt")
+        self._gpu_utilization = MetricStatistics(unit="percent")
+        self._gpu_temperature = MetricStatistics(unit="celsius")
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+
+            self._reset_metrics()
+            self._stop_event.clear()
+            thread = threading.Thread(
+                target=self._collect_loop,
+                name="GPUMetricsCollector",
+                daemon=True,
+            )
+            self._thread = thread
+
+        thread.start()
+        logger.debug("GPUMetricsCollector запущен, интервал %.3fs", self.interval_seconds)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+        thread = self._thread
+        if thread is None:
+            return
+
+        thread.join()
+        self._thread = None
+        logger.debug("GPUMetricsCollector остановлен")
+
+    def _reset_metrics(self) -> None:
+        self._vram_usage = MetricStatistics(unit="megabyte")
+        self._gpu_power = MetricStatistics(unit="watt")
+        self._gpu_utilization = MetricStatistics(unit="percent")
+        self._gpu_temperature = MetricStatistics(unit="celsius")
+
+    def get(self) -> GPUMetrics:
+        with self._lock:
+            return GPUMetrics(
+                vram_usage=_copy_metric_or_none(self._vram_usage),
+                gpu_power=_copy_metric_or_none(self._gpu_power),
+                gpu_utilization=_copy_metric_or_none(self._gpu_utilization),
+                gpu_temperature=_copy_metric_or_none(self._gpu_temperature),
+            )
+
+    def _collect_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self._collect_once()
+            except Exception:
+                logger.exception("Ошибка при сборе метрик GPU, снимок пропущен")
+
+            self._stop_event.wait(self.interval_seconds)
+
+    def _collect_once(self) -> None:
+        gpu_metrics = self.gpu_collector.get_metrics()
+
+        if gpu_metrics is None:
+            return
+
+        with self._lock:
+            _extend_metric(self._vram_usage, gpu_metrics.vram_usage)
+            _extend_metric(self._gpu_power, gpu_metrics.gpu_power)
+            _extend_metric(self._gpu_utilization, gpu_metrics.gpu_utilization)
+            _extend_metric(self._gpu_temperature, gpu_metrics.gpu_temperature)
+
+def _extend_metric(target: MetricStatistics, source: MetricStatistics | None) -> None:
+    if source is None:
+        return
+    target.history.extend(source.history)
+
+def _copy_metric_or_none(metric: MetricStatistics) -> MetricStatistics | None:
+    if not metric.history:
+        return None
+
+    copied_metric = MetricStatistics(unit=metric.unit)
+    copied_metric.history.extend(metric.history)
+    return copied_metric
+
+# infrastructure/metrics/quality.py
+
+logger = logging.getLogger(__name__)
+
+class QualityMetricsCollector(ABC):
+    @abstractmethod
+    def collect(self) -> QualityMetrics:
+        ...
+
+class YOLOQualityMetricsCollector(QualityMetricsCollector):
+    def __init__(self,
+                 yolo_backend: Any,
+            dataset_path: Path | str,
+            task_type: TaskType | str = TaskType.DETECT,
+            imgsz: int = 640,
+            conf_threshold: float = 0.25,
+    ) -> None:
+
+        self.yolo_backend = yolo_backend
+        self.yolo_model = yolo_backend.model if hasattr(yolo_backend, "model") else yolo_backend
+        self.dataset_path = self._resolve_dataset_config(Path(dataset_path))
+        self.task_type = self._normalize_task_type(task_type)
+        self.imgsz = imgsz
+        self.conf_threshold = conf_threshold
+        self._cached_metrics: QualityMetrics | None = None
+
+    def collect(self) -> QualityMetrics:
+        if self._cached_metrics is not None:
+            logger.debug("Возвращаю закэшированные метрики качества")
+            return self._cached_metrics
+
+        try:
+            metrics = self._run_validation()
+            self._cached_metrics = metrics
+            return metrics
+        except Exception as e:
+            logger.exception("Ошибка при сборе метрик качества: %s", e)
+            return QualityMetrics()
+
+    def _run_validation(self) -> QualityMetrics:
+        try:
+            logger.info(
+                "Запуск валидации YOLO на датасете: %s",
+                self.dataset_path,
+            )
+
+            results = self.yolo_model.val(
+                data=str(self.dataset_path),
+                imgsz=self.imgsz,
+                conf=self.conf_threshold,
+                task=self.task_type.value,
+                verbose=False,
+            )
+
+            metrics_source = self._select_metrics_source(results)
+
+            recall = self._safe_float(
+                getattr(metrics_source, "mr", None),
+                "mean recall",
+            )
+            precision = self._safe_float(
+                getattr(metrics_source, "mp", None),
+                "mean precision",
+            )
+
+            if recall is not None and precision is not None:
+                if recall + precision > 0:
+                    f1_score = 2 * (precision * recall) / (precision + recall)
+                else:
+                    f1_score = None
+            else:
+                f1_score = None
+
+            map50 = self._safe_float(getattr(metrics_source, "map50", None), "map50")
+            map50_95 = self._safe_float(getattr(metrics_source, "map", None), "map50-95")
+
+            logger.info(
+                "Метрики качества: recall=%.4f, precision=%.4f, "
+                "f1=%.4f, map50=%.4f, map50_95=%.4f",
+                recall or 0.0,
+                precision or 0.0,
+                f1_score or 0.0,
+                map50 or 0.0,
+                map50_95 or 0.0,
+            )
+
+            return QualityMetrics(
+                recall=recall,
+                precision=precision,
+                f1_score=f1_score,
+                map50=map50,
+                map50_95=map50_95,
+            )
+
+        except Exception as e:
+            logger.error("Ошибка при валидации модели: %s", e)
+            raise
+
+    @staticmethod
+    def _resolve_dataset_config(dataset_path: Path) -> Path:
+        if dataset_path.is_dir():
+            dataset_config = dataset_path / "data.yaml"
+            if dataset_config.is_file():
+                return dataset_config
+
+        return dataset_path
+
+    @staticmethod
+    def _normalize_task_type(task_type: TaskType | str) -> TaskType:
+        if isinstance(task_type, TaskType):
+            return task_type
+        return TaskType(str(task_type).strip().lower())
+
+    def _select_metrics_source(self, results: Any) -> Any:
+        candidates_by_task = {
+            TaskType.SEGMENT.value: "seg",
+            TaskType.POSE.value: "pose",
+            TaskType.OBB.value: "obb",
+        }
+        candidate_name = candidates_by_task.get(self.task_type.value, "box")
+        metrics_source = getattr(results, candidate_name, None)
+        if metrics_source is not None:
+            return metrics_source
+
+        logger.warning(
+            "В результатах validation нет секции %s для task_type=%s",
+            candidate_name,
+            self.task_type.value,
+        )
+        return getattr(results, "box", results)
+
+    @staticmethod
+    def _safe_float(value: Any, field_name: str) -> float | None:
+        if value is None:
+            return None
+
+        try:
+            result = float(value)
+            if not (0 <= result <= 100):
+                logger.warning(
+                    "Значение %s=%.4f выходит за пределы [0, 100]",
+                    field_name,
+                    result,
+                )
+            return result
+        except (TypeError, ValueError) as e:
+            logger.warning(
+                "Не удалось преобразовать %s в float: %s", field_name, e
+            )
+            return None
+
+# infrastructure/model_quantization/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "ONNXINT8Quantizer",
+    "OpenVINOFP16Quantizer",
+    "OpenVINOINT8Quantizer",
+    "PyTorchINT8Quantizer",
+    "TensorRTFP16Quantizer",
+    "TensorRTINT8Quantizer",
+    "NCNNFP32Exporter",
+    "NCNNINT8Quantizer",
+]
+
+__version__ = "0.0.0.1"
+
+logger = logging.getLogger(__name__)
+
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
+
+def collect_calibration_images(dataset_config_path: Path, max_samples: int = 32) -> list[Path]:
+    dataset_config_path = Path(dataset_config_path)
+    if not dataset_config_path.is_file():
+        raise CalibrationDataError(f"data.yaml не найден: {dataset_config_path}")
+
+    with dataset_config_path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+
+    dataset_root = _resolve_dataset_root(dataset_config_path, data.get("path"))
+    image_source = data.get("val") or data.get("test") or data.get("train")
+    if image_source is None:
+        raise CalibrationDataError("В data.yaml нет train/val/test для калибровки")
+
+    image_paths = _resolve_image_paths(dataset_root, dataset_config_path, image_source)
+    if not image_paths:
+        raise CalibrationDataError(f"Изображения для калибровки не найдены: {image_source}")
+
+    return image_paths[:max_samples]
+
+def preprocess_yolo_image(image_path: Path, input_size: int) -> np.ndarray:
+    image = cv2.imread(str(image_path))
+    if image is None:
+        raise CalibrationDataError(f"Не удалось прочитать изображение: {image_path}")
+
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.resize(image, (input_size, input_size), interpolation=cv2.INTER_LINEAR)
+    image = image.astype(np.float32) / 255.0
+    image = np.transpose(image, (2, 0, 1))
+    return np.expand_dims(image, axis=0)
+
+def _resolve_dataset_root(dataset_config_path: Path, raw_root: Any) -> Path:
+    if raw_root is None:
+        return dataset_config_path.parent
+
+    root = Path(str(raw_root)).expanduser()
+    if root.is_absolute():
+        return root
+
+    parent_candidate = dataset_config_path.parent / root
+    if parent_candidate.exists():
+        return parent_candidate
+
+    cwd_candidate = Path.cwd() / root
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    return parent_candidate
+
+def _resolve_image_paths(
+        dataset_root: Path,
+        dataset_config_path: Path,
+        image_source: Any,
+) -> list[Path]:
+
+    if isinstance(image_source, (list, tuple)):
+        paths: list[Path] = []
+        for item in image_source:
+            paths.extend(_resolve_image_paths(dataset_root, dataset_config_path, item))
+        return sorted(set(paths))
+
+    source = Path(str(image_source)).expanduser()
+    candidates = []
+
+    if source.is_absolute():
+        candidates.append(source)
+    else:
+        candidates.extend([
+            dataset_root / source,
+            dataset_config_path.parent / source,
+            Path.cwd() / source,
+        ])
+
+        source_str = str(source)
+        if source_str.startswith("../"):
+            # Убираем все ../ из начала пути
+            cleaned_source = source_str
+            while cleaned_source.startswith("../"):
+                cleaned_source = cleaned_source[3:]
+
+            cleaned_path = Path(cleaned_source)
+            candidates.extend([
+                dataset_root / cleaned_path,
+                dataset_config_path.parent / cleaned_path,
+                Path.cwd() / cleaned_path,
+            ])
+    for candidate in candidates:
+        if candidate.is_dir():
+            return _collect_images_from_directory(candidate)
+        if candidate.is_file():
+            return _collect_images_from_file(candidate)
+
+    return []
+
+def _collect_images_from_directory(directory: Path) -> list[Path]:
+    image_paths: list[Path] = []
+    for extension in IMAGE_EXTENSIONS:
+        image_paths.extend(
+            Path(path)
+            for path in glob.glob(str(directory / f"*{extension}"))
+        )
+        image_paths.extend(
+            Path(path)
+            for path in glob.glob(str(directory / f"*{extension.upper()}"))
+        )
+    return sorted(image_paths)
+
+def _collect_images_from_file(file_path: Path) -> list[Path]:
+    image_paths: list[Path] = []
+    with file_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            raw_path = line.strip()
+            if not raw_path:
+                continue
+
+            image_path = Path(raw_path).expanduser()
+            if not image_path.is_absolute():
+                image_path = file_path.parent / image_path
+            if image_path.is_file():
+                image_paths.append(image_path)
+
+    return sorted(image_paths)
+
+logger = logging.getLogger(__name__)
+
+class NCNNFP32Exporter:
+    def export(
+            self,
+            pt_path: Path,
+            ncnn_param_path: Path,
+            ncnn_bin_path: Path,
+    ) -> tuple[Path, Path]:
+        if ncnn_param_path.exists() and ncnn_bin_path.exists():
+            return ncnn_param_path, ncnn_bin_path
+
+        onnx_path = ncnn_param_path.with_suffix(".onnx")
+        export_yolo_model(
+            pt_path=pt_path,
+            export_format="onnx",
+            target_path=onnx_path,
+        )
+
+        if not shutil.which("onnx2ncnn"):
+            raise NCNNQuantizationError(
+                "Утилита 'onnx2ncnn' не найдена в PATH. Установите ncnn-tools."
+            )
+
+        try:
+            subprocess.run(
+                ["onnx2ncnn", str(onnx_path), str(ncnn_param_path), str(ncnn_bin_path)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise NCNNQuantizationError(f"Ошибка onnx2ncnn: {e.stderr}") from e
+
+        return ncnn_param_path, ncnn_bin_path
+
+class NCNNINT8Quantizer:
+    def quantize(
+            self,
+            pt_path: Path,
+            ncnn_int8_param_path: Path,
+            ncnn_int8_bin_path: Path,
+            dataset_config_path: Path,
+            input_size: int,
+    ) -> tuple[Path, Path]:
+        if ncnn_int8_param_path.exists() and ncnn_int8_bin_path.exists():
+            return ncnn_int8_param_path, ncnn_int8_bin_path
+
+        fp32_param_path = ncnn_int8_param_path.with_name(
+            ncnn_int8_param_path.stem.replace("_int8", "") + ".param"
+        )
+        fp32_bin_path = ncnn_int8_bin_path.with_name(
+            ncnn_int8_bin_path.stem.replace("_int8", "") + ".bin"
+        )
+        NCNNFP32Exporter().export(pt_path, fp32_param_path, fp32_bin_path)
+
+        if not shutil.which("ncnn2table"):
+            raise NCNNQuantizationError("Утилита 'ncnn2table' не найдена в PATH.")
+        if not shutil.which("ncnn2int8"):
+            raise NCNNQuantizationError("Утилита 'ncnn2int8' не найдена в PATH.")
+
+        image_paths = collect_calibration_images(dataset_config_path)
+        if not image_paths:
+            raise NCNNQuantizationError("Не найдены изображения для калибровки NCNN.")
+
+        calib_dir = ncnn_int8_param_path.parent / "ncnn_calib_images"
+        calib_dir.mkdir(exist_ok=True)
+
+        for i, img_path in enumerate(image_paths):
+            link_path = calib_dir / f"calib_{i:04d}{img_path.suffix}"
+            if not link_path.exists():
+                link_path.symlink_to(img_path.resolve())
+
+        table_path = ncnn_int8_param_path.with_suffix(".table")
+
+        try:
+            subprocess.run(
+                [
+                    "ncnn2table",
+                    str(fp32_param_path),
+                    str(fp32_bin_path),
+                    str(calib_dir),
+                    str(table_path),
+                    "mean=[0,0,0]",
+                    "norm=[0.0039215686,0.0039215686,0.0039215686]",
+                    f"size={input_size},{input_size}",
+                    "pixel=BGR",
+                    "thread=4",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise NCNNQuantizationError(f"Ошибка ncnn2table: {e.stderr}") from e
+
+        try:
+            subprocess.run(
+                [
+                    "ncnn2int8",
+                    str(fp32_param_path),
+                    str(fp32_bin_path),
+                    str(table_path),
+                    str(ncnn_int8_param_path),
+                    str(ncnn_int8_bin_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise NCNNQuantizationError(f"Ошибка ncnn2int8: {e.stderr}") from e
+
+        return ncnn_int8_param_path, ncnn_int8_bin_path
+
+
+# infrastructure/model_quantization/onnx.py
+
+logger = logging.getLogger(__name__)
+
+class YoloONNXCalibrationDataReader:
+    def __init__(
+        self,
+        input_name: str,
+        image_paths: list[Path],
+        input_size: int,
+    ) -> None:
+        self.input_name = input_name
+        self.image_paths = image_paths
+        self.input_size = input_size
+        self._index = 0
+
+    def get_next(self) -> dict[str, object] | None:
+        if self._index >= len(self.image_paths):
+            return None
+
+        image_path = self.image_paths[self._index]
+        self._index += 1
+        return {
+            self.input_name: preprocess_yolo_image(image_path, self.input_size),
+        }
+
+class ONNXINT8Quantizer:
+    def quantize(
+        self,
+        pt_path: Path,
+        fp32_onnx_path: Path,
+        int8_onnx_path: Path,
+        dataset_config_path: Path,
+        input_size: int,
+    ) -> Path:
+        if int8_onnx_path.exists():
+            return int8_onnx_path
+
+        try:
+            import onnxruntime as ort
+            from onnxruntime.quantization import (
+                CalibrationMethod,
+                QuantFormat,
+                QuantType,
+                quantize_static,
+            )
+        except ImportError as error:
+            raise ONNXQuantizationError(
+                "Для ONNX INT8 нужны пакеты onnxruntime и onnx"
+            ) from error
+
+        fp32_onnx_path = export_yolo_model(
+            pt_path=pt_path,
+            export_format="onnx",
+            target_path=fp32_onnx_path,
+        )
+
+        image_paths = collect_calibration_images(dataset_config_path)
+        session = ort.InferenceSession(
+            str(fp32_onnx_path),
+            providers=["CPUExecutionProvider"],
+        )
+        input_name = session.get_inputs()[0].name
+
+        reader = YoloONNXCalibrationDataReader(
+            input_name=input_name,
+            image_paths=image_paths,
+            input_size=input_size,
+        )
+
+        quantize_static(
+            model_input=str(fp32_onnx_path),
+            model_output=str(int8_onnx_path),
+            calibration_data_reader=reader,
+            quant_format=QuantFormat.QDQ,
+            activation_type=QuantType.QInt8,
+            weight_type=QuantType.QInt8,
+            calibrate_method=CalibrationMethod.MinMax,
+            per_channel=True,
+        )
+
+        if not int8_onnx_path.exists():
+            raise ONNXQuantizationError(
+                f"ONNX INT8 quantization не создала файл: {int8_onnx_path}"
+            )
+
+        return int8_onnx_path
+
+# infrastructure/model_quantization/openvino.py
+
+logger = logging.getLogger(__name__)
+
+class OpenVINOFP16Quantizer:
+    def quantize(
+        self,
+        pt_path: Path,
+        fp32_openvino_path: Path,
+        fp16_openvino_path: Path,
+    ) -> Path:
+        if fp16_openvino_path.exists():
+            return fp16_openvino_path
+
+        try:
+            import openvino as ov
+        except ImportError as error:
+            raise OpenVINOQuantizationError(
+                "Для OpenVINO FP16 нужен пакет openvino"
+            ) from error
+
+        fp32_openvino_path = export_yolo_model(
+            pt_path=pt_path,
+            export_format="openvino",
+            target_path=fp32_openvino_path,
+        )
+
+        source_xml = _find_openvino_xml(fp32_openvino_path)
+        try:
+            model = ov.Core().read_model(str(source_xml))
+        except Exception as error:
+            raise OpenVINOQuantizationError(
+                f"Не удалось прочитать OpenVINO FP32 модель: {source_xml}"
+            ) from error
+
+        fp16_openvino_path.mkdir(parents=True, exist_ok=True)
+        target_xml = fp16_openvino_path / source_xml.name
+        try:
+            ov.save_model(model, str(target_xml), compress_to_fp16=True)
+        except Exception as error:
+            raise OpenVINOQuantizationError(
+                f"Не удалось сохранить OpenVINO FP16 модель: {target_xml}"
+            ) from error
+
+        _copy_openvino_metadata(fp32_openvino_path, fp16_openvino_path)
+        if not target_xml.exists():
+            raise OpenVINOQuantizationError(
+                f"OpenVINO FP16 quantization не создала файл: {target_xml}"
+            )
+
+        return fp16_openvino_path
+
+class OpenVINOINT8Quantizer:
+    def quantize(
+        self,
+        pt_path: Path,
+        fp32_openvino_path: Path,
+        int8_openvino_path: Path,
+        dataset_config_path: Path,
+        input_size: int,
+    ) -> Path:
+        if int8_openvino_path.exists():
+            return int8_openvino_path
+
+        try:
+            import nncf
+            import openvino as ov
+        except ImportError as error:
+            raise OpenVINOQuantizationError(
+                "Для OpenVINO INT8 нужны пакеты openvino и nncf"
+            ) from error
+
+        fp32_openvino_path = export_yolo_model(
+            pt_path=pt_path,
+            export_format="openvino",
+            target_path=fp32_openvino_path,
+        )
+
+        source_xml = _find_openvino_xml(fp32_openvino_path)
+        image_paths = collect_calibration_images(dataset_config_path)
+        core = ov.Core()
+        model = core.read_model(str(source_xml))
+        input_name = model.inputs[0].get_any_name()
+
+        calibration_items = [
+            {input_name: preprocess_yolo_image(image_path, input_size)}
+            for image_path in image_paths
+        ]
+        calibration_dataset = nncf.Dataset(calibration_items)
+        try:
+            quantized_model = nncf.quantize(
+                model,
+                calibration_dataset,
+                subset_size=len(calibration_items),
+            )
+        except Exception as error:
+            raise OpenVINOQuantizationError(
+                "OpenVINO/NNCF не смог выполнить INT8-квантование"
+            ) from error
+
+        int8_openvino_path.mkdir(parents=True, exist_ok=True)
+        target_xml = int8_openvino_path / source_xml.name
+        try:
+            ov.save_model(quantized_model, str(target_xml))
+        except Exception as error:
+            raise OpenVINOQuantizationError(
+                f"Не удалось сохранить OpenVINO INT8 модель: {target_xml}"
+            ) from error
+        _copy_openvino_metadata(fp32_openvino_path, int8_openvino_path)
+
+        if not target_xml.exists():
+            raise OpenVINOQuantizationError(
+                f"OpenVINO INT8 quantization не создала файл: {target_xml}"
+            )
+        return int8_openvino_path
+
+def _find_openvino_xml(openvino_path: Path) -> Path:
+    openvino_path = Path(openvino_path)
+    if openvino_path.is_file() and openvino_path.suffix == ".xml":
+        return openvino_path
+
+    xml_files = sorted(openvino_path.glob("*.xml"))
+    if not xml_files:
+        raise OpenVINOQuantizationError(
+            f"OpenVINO XML-файл не найден в {openvino_path}"
+        )
+    return xml_files[0]
+
+def _copy_openvino_metadata(source_dir: Path, target_dir: Path) -> None:
+    metadata_path = source_dir / "metadata.yaml"
+    if metadata_path.is_file():
+        shutil.copy2(metadata_path, target_dir / metadata_path.name)
+
+# infrastructure/model_quantization/pytorch.py
+
+logger = logging.getLogger(__name__)
+
+class PyTorchINT8Quantizer:
+    def quantize(
+            self,
+            pt_path: Path,
+            int8_pt_path: Path,
+            dataset_config_path: Path,
+            input_size: int,
+    ) -> Path:
+        if int8_pt_path.exists():
+            return int8_pt_path
+
+        try:
+            import torch
+            import torch.ao.quantization as quantization
+        except ImportError as error:
+            raise PyTorchQuantizationError(
+                "Для PyTorch INT8 нужен пакет torch>=1.13"
+            ) from error
+
+        pt_path = ensure_yolo_pt_model(pt_path)
+
+        try:
+            model = torch.load(pt_path, map_location="cpu")
+            if hasattr(model, "model"):
+                model = model.model
+            model.eval()
+
+            quantized_model = torch.ao.quantization.quantize_dynamic(
+                model,
+                {torch.nn.Linear, torch.nn.Conv2d},
+                dtype=torch.qint8,
+            )
+
+            torch.save(quantized_model, int8_pt_path)
+
+            if not int8_pt_path.exists():
+                raise PyTorchQuantizationError(
+                    f"PyTorch INT8 quantization не создала файл: {int8_pt_path}"
+                )
+
+            logger.info(f"PyTorch INT8 модель сохранена: {int8_pt_path}")
+            return int8_pt_path
+
+        except Exception as error:
+            raise PyTorchQuantizationError(
+                f"PyTorch INT8 quantization не удалась: {error}"
+            ) from error
+
+# infrastructure/model_quantization/tensorrt.py
+
+logger = logging.getLogger(__name__)
+
+class TensorRTFP16Quantizer:
+    def quantize(
+            self,
+            pt_path: Path,
+            fp16_engine_path: Path,
+    ) -> Path:
+        if fp16_engine_path.exists():
+            return fp16_engine_path
+
+        try:
+            import tensorrt as trt
+        except ImportError as error:
+            raise TensorRTQuantizationError(
+                "Для TensorRT нужен пакет tensorrt (только на NVIDIA GPU)"
+            ) from error
+
+        onnx_path = fp16_engine_path.with_suffix(".onnx")
+        export_yolo_model(
+            pt_path=pt_path,
+            export_format="onnx",
+            target_path=onnx_path,
+        )
+
+        TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+        builder = trt.Builder(TRT_LOGGER)
+        network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        parser = trt.OnnxParser(network, TRT_LOGGER)
+
+        with open(onnx_path, "rb") as model_file:
+            if not parser.parse(model_file.read()):
+                raise TensorRTQuantizationError(
+                    f"Не удалось распарсить ONNX модель: {onnx_path}"
+                )
+
+        config = builder.create_builder_config()
+        config.set_flag(trt.BuilderFlag.FP16)
+        config.max_workspace_size = 1 << 30  # 1GB
+
+        engine = builder.build_engine(network, config)
+        if engine is None:
+            raise TensorRTQuantizationError("Не удалось создать TensorRT engine")
+
+        with open(fp16_engine_path, "wb") as engine_file:
+            engine_file.write(engine.serialize())
+
+        if not fp16_engine_path.exists():
+            raise TensorRTQuantizationError(
+                f"TensorRT FP16 quantization не создала файл: {fp16_engine_path}"
+            )
+
+        return fp16_engine_path
+
+class TensorRTINT8Quantizer:
+    def quantize(
+            self,
+            pt_path: Path,
+            int8_engine_path: Path,
+            dataset_config_path: Path,
+            input_size: int,
+    ) -> Path:
+        if int8_engine_path.exists():
+            return int8_engine_path
+
+        try:
+            import tensorrt as trt
+            import numpy as np
+        except ImportError as error:
+            raise TensorRTQuantizationError(
+                "Для TensorRT INT8 нужен пакет tensorrt (только на NVIDIA GPU)"
+            ) from error
+
+        onnx_path = int8_engine_path.with_suffix(".onnx")
+        export_yolo_model(
+            pt_path=pt_path,
+            export_format="onnx",
+            target_path=onnx_path,
+        )
+
+        image_paths = collect_calibration_images(dataset_config_path)
+        calibration_data = [
+            preprocess_yolo_image(img_path, input_size)
+            for img_path in image_paths
+        ]
+
+        class Int8Calibrator(trt.IInt8EntropyCalibrator2):
+            def __init__(self, data, batch_size=1):
+                trt.IInt8EntropyCalibrator2.__init__(self)
+                self.data = data
+                self.batch_size = batch_size
+                self.current_index = 0
+
+                self.device_input = trt.cuda.DeviceAllocation(
+                    np.zeros((batch_size, 3, input_size, input_size), dtype=np.float32).nbytes
+                )
+
+            def get_batch_size(self):
+                return self.batch_size
+
+            def get_batch(self, names):
+                if self.current_index + self.batch_size > len(self.data):
+                    return None
+
+                batch = np.array(self.data[self.current_index:self.current_index + self.batch_size])
+                self.current_index += self.batch_size
+
+                trt.cuda.memcpy_host_to_device(
+                    self.device_input,
+                    np.ascontiguousarray(batch),
+                    batch.nbytes
+                )
+                return [int(self.device_input)]
+
+            def read_calibration_cache(self):
+                return None
+
+            def write_calibration_cache(self, cache):
+                pass
+
+        calibrator = Int8Calibrator(calibration_data)
+
+        TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+        builder = trt.Builder(TRT_LOGGER)
+        network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        parser = trt.OnnxParser(network, TRT_LOGGER)
+
+        with open(onnx_path, "rb") as model_file:
+            if not parser.parse(model_file.read()):
+                raise TensorRTQuantizationError(
+                    f"Не удалось распарсить ONNX модель: {onnx_path}"
+                )
+
+        config = builder.create_builder_config()
+        config.set_flag(trt.BuilderFlag.INT8)
+        config.int8_calibrator = calibrator
+        config.max_workspace_size = 1 << 30  # 1GB
+
+        engine = builder.build_engine(network, config)
+        if engine is None:
+            raise TensorRTQuantizationError("Не удалось создать TensorRT INT8 engine")
+
+        with open(int8_engine_path, "wb") as engine_file:
+            engine_file.write(engine.serialize())
+
+        if not int8_engine_path.exists():
+            raise TensorRTQuantizationError(
+                f"TensorRT INT8 quantization не создала файл: {int8_engine_path}"
+            )
+
+        return int8_engine_path
+
+# infrastructure/model_quantization/yolo_export.py
+
+logger = logging.getLogger(__name__)
+
+def ensure_yolo_pt_model(pt_path: Path) -> Path:
+    if pt_path.exists():
+        return pt_path
+
+    model_name = pt_path.name
+    logger.info(f"Модель не найдена в кэше, скачиваю {model_name}...")
+
+    try:
+        YOLO(model_name)
+        downloaded_path = Path(model_name).resolve()
+
+        if downloaded_path.exists():
+            pt_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(downloaded_path), str(pt_path))
+            logger.info(f"Модель успешно перемещена в кэш: {pt_path}")
+
+    except Exception as error:
+        raise ModelExportError(f"Не удалось скачать .pt модель {model_name}: {error}") from error
+
+    if not pt_path.exists():
+        raise ModelExportError(f"После загрузки .pt модель не найдена по пути: {pt_path}")
+
+    return pt_path
+
+def export_yolo_model(
+    pt_path: Path,
+    export_format: str,
+    target_path: Path,
+    export_kwargs: dict[str, object] | None = None,
+) -> Path:
+    pt_path = Path(pt_path)
+    target_path = Path(target_path)
+
+    if target_path.exists():
+        return target_path
+
+    pt_path = ensure_yolo_pt_model(pt_path)
+
+    kwargs = dict(export_kwargs or {})
+    kwargs["format"] = export_format
+
+    exported = YOLO(str(pt_path)).export(**kwargs)
+    exported_path = Path(exported)
+    if not exported_path.exists():
+        raise ModelExportError(f"Экспорт завершился без артефакта: {exported_path}")
+
+    if exported_path == target_path:
+        return target_path
+
+    if target_path.exists():
+        return target_path
+
+    shutil.move(str(exported_path), str(target_path))
+    return target_path
+
+# infrastructure/reporting/__init__.py
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CSVReporter",
+    "JSONReporter",
+]
+
+__version__ = "0.0.0.1"
+
+# infrastructure/reporting/csv_reporter.py
+
+logger = logging.getLogger(__name__)
+
+class CSVReporter(BaseReporter):
+    def __init__(self, output_dir: str) -> None:
+        self._output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+
+    def report(self, data: Any) -> None:
+        items = to_report_items(data)
+        if not items:
+            return
+
+        if isinstance(data, list) and data:
+            class_name = data[0].__class__.__name__.lower()
+        elif not isinstance(data, list):
+            class_name = data.__class__.__name__.lower()
+        else:
+            return  # пустой список
+
+        filename = os.path.join(self._output_dir, f"{class_name}_report.csv")
+
+        flat_items = [flatten_dict(item) for item in items]
+
+        existing_rows = []
+        existing_fieldnames = []
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            with open(filename, 'r', newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                existing_fieldnames = list(reader.fieldnames or [])
+                existing_rows = list(reader)
+
+        all_fieldnames = list(existing_fieldnames)
+        for row in flat_items:
+            for key in row.keys():
+                if key not in all_fieldnames:
+                    all_fieldnames.append(key)
+
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=all_fieldnames)
+            writer.writeheader()
+            writer.writerows(existing_rows)
+            writer.writerows(flat_items)
+
+
+logger = logging.getLogger(__name__)
+
+class JSONReporter(BaseReporter):
+    def __init__(self, output_dir: str) -> None:
+        self._output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+
+    def report(self, data: Any) -> None:
+        items = to_report_items(data)
+        if not items:
+            return
+
+        if isinstance(data, list) and data:
+            class_name = data[0].__class__.__name__.lower()
+        elif not isinstance(data, list):
+            class_name = data.__class__.__name__.lower()
+        else:
+            return
+
+        filename = os.path.join(self._output_dir, f"{class_name}_report.json")
+
+        existing = []
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    content = json.load(f)
+                    if isinstance(content, list):
+                        existing = content
+                    elif isinstance(content, dict):
+                        existing = [content]
+            except json.JSONDecodeError:
+                existing = []
+
+        existing.extend(items)
+
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+
+# infrastructure/utils/utils.py
+
+logger = logging.getLogger(__name__)
+
+def to_plain_data(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, MetricStatistics):
+        return _metric_statistics_to_report(value)
+    if is_dataclass(value):
+        return {
+            field.name: to_plain_data(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if isinstance(value, dict):
+        return {
+            str(key): to_plain_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [to_plain_data(item) for item in value]
+    if hasattr(value, "__dict__"):
+        return {
+            key: to_plain_data(item)
+            for key, item in vars(value).items()
+            if not key.startswith("_")
+        }
+    return value
+
+def _metric_statistics_to_report(metric: MetricStatistics) -> dict[str, Any]:
+    values = _metric_values_without_startup_zero(metric)
+
+    return {
+        "unit": metric.unit,
+        "samples": len(values),
+        "mean": _mean(values),
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+        "p99": _percentile(values, 0.99),
+        "min": min(values) if values else None,
+        "max": max(values) if values else None,
+    }
+
+def _metric_values_without_startup_zero(metric: MetricStatistics) -> list[float | int]:
+    values = [point.value for point in metric.history]
+    non_zero_values = [value for value in values if value != 0]
+    return non_zero_values or values
+
+def _mean(values: list[float | int]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+def _percentile(values: list[float | int], coeff: float) -> float | None:
+    if not values:
+        return None
+
+    sorted_values = sorted(values)
+    idx = int(coeff * (len(sorted_values) - 1))
+    return sorted_values[min(idx, len(sorted_values) - 1)]
+
+def flatten_dict(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    flat = {}
+    for key, value in data.items():
+        flat_key = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            flat.update(flatten_dict(value, flat_key))
+        elif isinstance(value, list):
+            flat[flat_key] = json.dumps(value, ensure_ascii=False)
+        else:
+            flat[flat_key] = value
+    return flat
+
+def to_report_items(data: Any) -> List[Dict[str, Any]]:
+    plain = to_plain_data(data)
+    if isinstance(plain, list):
+        result = []
+        for item in plain:
+            if isinstance(item, dict):
+                result.append(item)
+            else:
+                result.append({"value": item})
+        return result
+    else:
+        if isinstance(plain, dict):
+            return [plain]
+        else:
+            return [{"value": plain}]
+
+def to_float(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+def to_int(value: str) -> int | None:
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+def read_int(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8", errors="ignore").strip())
+    except (OSError, ValueError):
+        return None
+
+def empty_to_none(value: str) -> str | None:
+    stripped_value = value.strip()
+    return stripped_value or None
+
+

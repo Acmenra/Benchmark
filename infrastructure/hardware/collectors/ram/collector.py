@@ -1,4 +1,4 @@
-# infrastructure/hardware/collectors/collector.py
+# infrastructure/hardware/collectors/ram/collector.py
 
 import logging
 import platform

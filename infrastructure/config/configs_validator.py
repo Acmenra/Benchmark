@@ -2,22 +2,12 @@
 
 import logging
 from typing import Any
-
+from infrastructure.exceptions import ConfigError
 from core.enums.model import DeviceType, QuantizationLevel, TaskType
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
 
 logger = logging.getLogger(__name__)
-
-
-class ConfigError(ValueError):
-    """Configuration validation error."""
 
 
 class _ModelInputSchema(BaseModel):

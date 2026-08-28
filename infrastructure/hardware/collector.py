@@ -1,11 +1,12 @@
-import logging
-import socket
+# infrastructure/hardware/collector.py
 
-from core.domain.config.system import SystemInfoConfig
+import socket
+import logging
 from core.domain.system.system import SystemInfo
+from core.domain.config.system import SystemInfoConfig
 from infrastructure.hardware.collectors.cpu.collector import CPUCollector
 from infrastructure.hardware.collectors.gpu.collector import GPUCollector
-from infrastructure.hardware.collectors.ram.collector import RAMCollector  # <-- ДОБАВИЛИ
+from infrastructure.hardware.collectors.ram.collector import RAMCollector
 from infrastructure.hardware.collectors.operating_system import OSCollector
 from infrastructure.hardware.collectors.tmp.collector import collect_temperature
 

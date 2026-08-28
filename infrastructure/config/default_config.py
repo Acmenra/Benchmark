@@ -3,15 +3,8 @@
 import logging
 from pathlib import Path
 
+from core.enums.model import DeviceType, ModelFamily, ModelFormat, ModelSize, QuantizationLevel, TaskType
 from core.domain.config import Config, ModelConfig, BenchmarkConfig, BenchmarkCase, SystemInfoConfig, ReportConfig
-from core.enums.model import (
-    DeviceType,
-    ModelFamily,
-    ModelFormat,
-    ModelSize,
-    QuantizationLevel,
-    TaskType,
-)
 
 
 logger = logging.getLogger(__name__)

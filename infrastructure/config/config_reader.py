@@ -37,10 +37,7 @@ def _build_benchmark_config(benchmark_data: Any) -> BenchmarkConfig:
         else TaskType.DETECT
     )
 
-    if benchmark_data.devices:
-        payload["devices"] = tuple(DeviceType(dev) for dev in benchmark_data.devices)
-    else:
-        payload["devices"] = None
+    payload["devices"] = tuple(DeviceType(dev) for dev in benchmark_data.devices) if benchmark_data.devices else None
 
     if benchmark_data.models_dir:
         payload["models_dir"] = Path(benchmark_data.models_dir).resolve()

@@ -1,4 +1,4 @@
-# core/domain/hardware/npu_info.py
+# core/domain/hardware/mps_info.py
 
 import logging
 from dataclasses import dataclass

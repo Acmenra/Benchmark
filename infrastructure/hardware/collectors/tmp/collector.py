@@ -1,4 +1,4 @@
-# infrastructure/hardware/collectors/collector.py
+# infrastructure/hardware/collectors/tmp/collector.py
 
 import os
 import re

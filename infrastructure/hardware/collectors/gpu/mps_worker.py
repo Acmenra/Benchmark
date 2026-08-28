@@ -1,6 +1,4 @@
-"""
-Адаптер для работы с Apple Silicon (M1/M2/M3/M4) через Metal Performance Shaders.
-"""
+# infrastructure/hardware/collectors/gpu/mps_worker.py
 
 import platform
 import subprocess

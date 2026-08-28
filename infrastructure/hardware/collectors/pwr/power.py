@@ -1,4 +1,4 @@
-# infrastructure/hardware/collectors/power.py
+# infrastructure/hardware/collectors/pwr/power.py
 
 import re
 import time

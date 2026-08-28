@@ -1,4 +1,4 @@
-# infrastructure/metrics/collector.py
+# infrastructure/metrics/cpu.py
 
 import time
 import logging

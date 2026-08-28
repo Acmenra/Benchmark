@@ -1,3 +1,5 @@
+# infrastructure/hardware/collectors/operating_system.py
+
 import logging
 import platform
 
