@@ -4,6 +4,7 @@ import time
 import logging
 import platform
 from pathlib import Path
+from typing import Optional
 
 from core.domain.hardware import GPUInfo
 from core.domain.hardware.enums import PlatformType
@@ -20,17 +21,33 @@ logger = logging.getLogger(__name__)
 
 class GPUCollector(BaseHardwareCollector):
     """
-    Сборщик метрик GPU. Реализует контракт BaseHardwareCollector.
+    Concrete implementation of the GPU data and telemetry gathering contract.
 
-    Использует цепочку fallback: NVML -> SMI -> MPS.
-    Первый доступный воркер предоставляет данные.
+    This collector orchestrates a prioritized chain of specialized workers to
+    extract GPU metadata and runtime metrics. It guarantees graceful degradation
+    across Windows, Linux, and macOS by falling back from high-performance APIs
+    to CLI tools, and finally to platform-specific adapters.
+
+    Key design decisions:
+    - Workers (NVML, SMI, MPS) are initialized eagerly but self-determine their
+      availability, keeping the overhead of `is_available()` checks minimal.
+    - The fallback chain (NVML -> SMI -> MPS) is evaluated identically for both
+      static info and dynamic metrics, ensuring consistency.
     """
 
-    def __init__(self, system_info_config: SystemInfoConfig) -> None:
+    def __init__(self,
+                 system_info_config: SystemInfoConfig) -> None:
+        """
+        Initializes the GPU collector and instantiates all potential hardware workers.
+
+        The workers are lightweight and will silently fail to initialize if their
+        underlying dependencies (e.g., `pynvml`, `nvidia-smi`) are missing.
+
+        Args:
+            system_info_config: Configuration flags for telemetry collection.
+        """
         super().__init__(system_info_config)
 
-        # Инициализируем всех возможных воркеров.
-        # Они легкие и сами определят свою доступность.
         self._nvml = NVMLWorker()
         self._smi = SMIWorker()
         self._mps = MPSWorker()
@@ -39,8 +56,16 @@ class GPUCollector(BaseHardwareCollector):
 
     def get_hardware_info(self) -> GPUInfo:
         """
-        РЕАЛИЗАЦИЯ АБСТРАКТНОГО МЕТОДА.
-        Возвращает статическую информацию о GPU (цепочка fallback: NVML -> SMI -> MPS).
+        Returns the static hardware specifications of the GPU.
+
+        Executes a prioritized fallback chain to retrieve GPU metadata:
+        1. NVMLWorker (high-performance Python bindings for NVIDIA).
+        2. SMIWorker (CLI fallback via `nvidia-smi`).
+        3. MPSWorker (Apple Silicon adapter).
+
+        Returns:
+            GPUInfo: An immutable dataclass containing GPU name, VRAM, and driver info.
+                     Returns an empty `GPUInfo` (all fields `None`) if no GPU is detected.
         """
         if self._nvml.is_available():
             return self._nvml.get_info()
@@ -49,8 +74,10 @@ class GPUCollector(BaseHardwareCollector):
         if self._mps.is_available():
             return self._mps.get_info()
 
-        # Если ничего не найдено
-        return GPUInfo(name=None, memory_mb=None, driver_version=None, cuda_version=None)
+        return GPUInfo(name=None,
+                       memory_mb=None,
+                       driver_version=None,
+                       cuda_version=None)
 
     # def get_metrics(self) -> GPUMetrics:
     #     """
@@ -82,23 +109,45 @@ class GPUCollector(BaseHardwareCollector):
     #         gpu_temperature=None,
     #     )
 
-    def _build_metric(self, value: float | int | None, unit: str) -> MetricStatistics | None:
-        """Оборачивает сырое значение в MetricStatistics с DataPoint."""
+    def _build_metric(self,
+                      value: float | int | None,
+                      unit: str) -> Optional[MetricStatistics]:
+        """
+        Wraps a raw numeric value into a MetricStatistics container.
+
+        Uses `time.perf_counter()` for the timestamp to ensure high-resolution,
+        monotonic timing that is immune to system clock adjustments.
+
+        Args:
+            value: The raw metric value (e.g., temperature in Celsius).
+            unit: The unit of measurement (e.g., 'celsius', 'percent').
+
+        Returns:
+            MetricStatistics | None: A populated metric container, or `None` if the
+                                     input value is `None`.
+        """
         if value is None:
             return None
 
         metric = MetricStatistics(unit=unit)
-        metric.history.append(
-            DataPoint(
-                time_in_ms=time.perf_counter() * 1000.0,
-                value=float(value),
-            )
-        )
+        metric.history.append(DataPoint(time_in_ms=time.perf_counter() * 1000.0,
+                                        value=float(value)
+                                        )
+                              )
         return metric
 
     def _detect_platform(self) -> PlatformType:
-        """Определить аппаратную платформу по доступным локальным признакам."""
-        # Сначала проверяем macOS, так как /proc/device-tree/model там не существует
+        """
+        Heuristically determines the underlying hardware platform.
+
+        Inspects OS-specific markers (e.g., `/proc/device-tree/model` on Linux,
+        `/etc/nv_tegra_release` for Jetson) to classify the device. This classification
+        is used by the root `HardwareCollector` to populate the `SystemInfo` aggregate.
+
+        Returns:
+            PlatformType: The identified platform (e.g., DESKTOP, JETSON, RASPBERRY_PI).
+                          Defaults to `UNKNOWN` if no specific markers are found.
+        """
         if platform.system() == "Darwin":
             return PlatformType.DESKTOP
 

@@ -15,8 +15,22 @@ logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
 
 
-def collect_calibration_images(dataset_config_path: Path, max_samples: int = 32) -> list[Path]:
-    """Найти изображения для INT8-калибровки по Ultralytics data.yaml."""
+def collect_calibration_images(dataset_config_path: Path,
+                               max_samples: int = 32) -> list[Path]:
+    """
+    Finds images for INT8 calibration based on an Ultralytics data.yaml file.
+
+    Args:
+        dataset_config_path: Path to the dataset configuration YAML file.
+        max_samples: Maximum number of images to return for calibration.
+
+    Returns:
+        list[Path]: A list of resolved image paths, truncated to `max_samples`.
+
+    Raises:
+        CalibrationDataError: If the YAML is missing, lacks image sources,
+                              or no valid images are found.
+    """
     dataset_config_path = Path(dataset_config_path)
     if not dataset_config_path.is_file():
         raise CalibrationDataError(f"data.yaml не найден: {dataset_config_path}")
@@ -36,8 +50,21 @@ def collect_calibration_images(dataset_config_path: Path, max_samples: int = 32)
     return image_paths[:max_samples]
 
 
-def preprocess_yolo_image(image_path: Path, input_size: int) -> np.ndarray:
-    """Подготовить изображение для YOLO-модели в формате NCHW float32."""
+def preprocess_yolo_image(image_path: Path,
+                          input_size: int) -> np.ndarray:
+    """
+    Prepares an image for YOLO model inference in NCHW float32 format.
+
+    Args:
+        image_path: Path to the input image.
+        input_size: Target spatial resolution (e.g., 640).
+
+    Returns:
+        np.ndarray: A preprocessed image tensor of shape (1, 3, input_size, input_size).
+
+    Raises:
+        CalibrationDataError: If the image cannot be read by OpenCV.
+    """
     image = cv2.imread(str(image_path))
     if image is None:
         raise CalibrationDataError(f"Не удалось прочитать изображение: {image_path}")
@@ -49,8 +76,18 @@ def preprocess_yolo_image(image_path: Path, input_size: int) -> np.ndarray:
     return np.expand_dims(image, axis=0)
 
 
-def _resolve_dataset_root(dataset_config_path: Path, raw_root: Any) -> Path:
-    """Определить корень датасета с учетом разных вариантов data.yaml."""
+def _resolve_dataset_root(dataset_config_path: Path,
+                          raw_root: Any) -> Path:
+    """
+    Determines the dataset root directory, handling various data.yaml configurations.
+
+    Args:
+        dataset_config_path: Path to the data.yaml file.
+        raw_root: The 'path' value from the YAML (can be None, relative, or absolute).
+
+    Returns:
+        Path: The resolved absolute path to the dataset root.
+    """
     if raw_root is None:
         return dataset_config_path.parent
 
@@ -69,16 +106,23 @@ def _resolve_dataset_root(dataset_config_path: Path, raw_root: Any) -> Path:
     return parent_candidate
 
 
-def _resolve_image_paths(
-        dataset_root: Path,
-        dataset_config_path: Path,
-        image_source: Any,
-) -> list[Path]:
-    """Развернуть путь/список путей из data.yaml в список файлов изображений.
+def _resolve_image_paths(dataset_root: Path,
+                         dataset_config_path: Path,
+                         image_source: Any) -> list[Path]:
+    """
+    Expands a path or list of paths from data.yaml into a list of image files.
 
-    Поддерживает "ленивые" пути с ../, которые часто встречаются в датасетах Ultralytics,
-    даже когда data.yaml лежит в корне. Если путь с ../ не найден, автоматически
-    пробуем интерпретировать его как путь от корня датасета.
+    Supports "lazy" paths with `../`, which are common in Ultralytics datasets,
+    even when data.yaml is located in the root directory. If a `../` path fails,
+    it automatically attempts to interpret it relative to the dataset root.
+
+    Args:
+        dataset_root: The resolved root directory of the dataset.
+        dataset_config_path: Path to the data.yaml file.
+        image_source: A string, Path, or list of strings/Paths from the YAML.
+
+    Returns:
+        list[Path]: A sorted, unique list of resolved image file paths.
     """
     if isinstance(image_source, (list, tuple)):
         paths: list[Path] = []
@@ -92,19 +136,14 @@ def _resolve_image_paths(
     if source.is_absolute():
         candidates.append(source)
     else:
-        # Стандартные кандидаты
         candidates.extend([
             dataset_root / source,
             dataset_config_path.parent / source,
             Path.cwd() / source,
         ])
 
-        # ✅ НОВАЯ ЛОГИКА: Если путь начинается с ../, пробуем убрать ../ 
-        # и интерпретировать как путь от корня датасета
-        # Это поддерживает "ленивые" YAML, где ../ используется даже когда data.yaml в корне
         source_str = str(source)
         if source_str.startswith("../"):
-            # Убираем все ../ из начала пути
             cleaned_source = source_str
             while cleaned_source.startswith("../"):
                 cleaned_source = cleaned_source[3:]
@@ -126,6 +165,7 @@ def _resolve_image_paths(
 
 
 def _collect_images_from_directory(directory: Path) -> list[Path]:
+    """Recursively or flatly collects images from a directory."""
     image_paths: list[Path] = []
     for extension in IMAGE_EXTENSIONS:
         image_paths.extend(
@@ -140,6 +180,7 @@ def _collect_images_from_directory(directory: Path) -> list[Path]:
 
 
 def _collect_images_from_file(file_path: Path) -> list[Path]:
+    """Reads a text file containing a list of image paths."""
     image_paths: list[Path] = []
     with file_path.open("r", encoding="utf-8") as handle:
         for line in handle:

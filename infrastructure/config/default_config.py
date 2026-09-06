@@ -21,30 +21,22 @@ def build_default_config() -> Config:
         for size in ModelSize
     )
 
-    return Config(
-        benchmark=BenchmarkConfig(
-            runs=(BenchmarkCase(models=models),),
-            devices=(DeviceType.AUTO,),
-            models_dir=Path("./models"),
-            formats=tuple(model_format.value for model_format in ModelFormat),
-            quantization=(QuantizationLevel.FP32.value,),
-            task_type=TaskType.DETECT,
-            input_size=640,
-            batch_size=1,
-            warmup_iterations=10,
-            main_iterations=100,
-            confidence_threshold=0.25,
-            test_images="./data/test_images",
-        ),
-        system_info=SystemInfoConfig(
-            collect_cpu=True,
-            collect_gpu=True,
-            collect_power=True,
-            collect_temperature=True,
-        ),
-        output=ReportConfig(
-            directory=Path("./results"),
-            formats=("json", "csv", "markdown"),
-            use_timestamp=True,
-        ),
-    )
+    return Config(benchmark=BenchmarkConfig(runs=(BenchmarkCase(models=models),),
+                                            devices=(DeviceType.AUTO,),
+                                            models_dir=Path("./models"),
+                                            formats=tuple(model_format.value for model_format in ModelFormat),
+                                            quantization=(QuantizationLevel.FP32.value,),
+                                            task_type=TaskType.DETECT,
+                                            input_size=640,
+                                            batch_size=1,
+                                            warmup_iterations=10,
+                                            main_iterations=100,
+                                            confidence_threshold=0.25,
+                                            test_images="./data/test_images"),
+                  system_info=SystemInfoConfig(collect_cpu=True,
+                                               collect_gpu=True,
+                                               collect_power=True,
+                                               collect_temperature=True),
+                  output=ReportConfig(directory=Path("./results"),
+                                      formats=("json", "csv", "markdown"),
+                                      use_timestamp=True))

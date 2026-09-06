@@ -58,7 +58,8 @@ class Reporter:
         self._reporters = reporters
         self._enabled_formats = [fmt.lower().strip() for fmt in enabled_formats]
 
-    def report(self, data: Any) -> None:
+    def report(self,
+               data: Any) -> None:
         """
         Generates reports in all enabled formats for the given data.
 

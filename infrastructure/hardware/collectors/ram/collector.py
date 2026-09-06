@@ -3,6 +3,7 @@
 import logging
 import platform
 import subprocess
+from typing import Optional
 
 from core.domain.hardware.ram_info import RAMInfo
 from core.domain.config.system import SystemInfoConfig
@@ -13,17 +14,44 @@ logger = logging.getLogger(__name__)
 
 
 class RAMCollector(BaseHardwareCollector):
-    """Сборщик статической информации об оперативной памяти (RAM)."""
+    """
+    Concrete implementation for static RAM data gathering.
 
-    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+    This collector focuses exclusively on static characterization. It caches
+    the total memory capacity and attempts to identify the memory type
+    (e.g., Unified Memory, LPDDR) using OS-specific heuristics.
+    """
+
+    def __init__(self,
+                 system_info_config: Optional[SystemInfoConfig] = None) -> None:
+        """
+        Initializes the RAM collector and pre-computes static hardware info.
+
+        Args:
+            system_info_config: Configuration flags for telemetry collection.
+        """
         super().__init__(system_info_config)
         self._hardware_info = self._gather_static_info()
 
     def get_hardware_info(self) -> RAMInfo:
-        """Возвращает кэшированную статическую информацию о RAM."""
+        """
+        Returns the pre-computed, cached static RAM specifications.
+
+        Returns:
+            RAMInfo: An immutable dataclass containing total MB and memory type.
+        """
         return self._hardware_info
 
     def _gather_static_info(self) -> RAMInfo:
+        """
+        Orchestrates the collection of static RAM metadata.
+
+        Uses `psutil` for total capacity and delegates memory type detection
+        to the `_get_ram_type()` heuristic method.
+
+        Returns:
+            RAMInfo: A fully populated RAM information dataclass.
+        """
         total_mb = None
         ram_type = None
 
@@ -36,14 +64,24 @@ class RAMCollector(BaseHardwareCollector):
 
         ram_type = self._get_ram_type()
 
-        return RAMInfo(
-            total_mb=total_mb,
-            type=ram_type,
-            speed_mhz=None
-        )
+        return RAMInfo(total_mb=total_mb,
+                       type=ram_type,
+                       speed_mhz=None)
 
-    def _get_ram_type(self) -> str | None:
-        """Пытается определить тип памяти в зависимости от ОС."""
+    def _get_ram_type(self) -> Optional[str]:
+        """
+        Attempts to identify the RAM type using OS-specific heuristics.
+
+        Resolution order:
+        1. macOS: Explicitly returns "Unified Memory" (Apple Silicon).
+        2. Linux (Edge): Parses `/proc/device-tree/model` to detect Raspberry Pi
+           or NVIDIA Jetson, returning "LPDDR" for these architectures.
+        3. Fallback: Returns `None` for standard desktop Linux/Windows where
+           generic DDR type detection requires privileged access.
+
+        Returns:
+            str | None: The identified memory type, or `None` if undetermined.
+        """
         system = platform.system()
 
         if system == "Darwin":
@@ -67,7 +105,11 @@ class RAMCollector(BaseHardwareCollector):
 
     def get_metrics(self) -> None:
         """
-        RAM Collector отвечает только за статику в этом контексте.
-        Динамические метрики (usage) собираются отдельно, если нужно.
+        Returns `None` as dynamic RAM usage is handled separately.
+
+        Note:
+            In the current benchmark context, this collector is strictly
+            responsible for static hardware characterization. Dynamic memory
+            polling (if required) is managed by a separate utility.
         """
         return None

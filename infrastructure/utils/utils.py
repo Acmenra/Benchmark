@@ -2,10 +2,10 @@
 
 import json
 import logging
-from datetime import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, List, Dict
+from datetime import time
+from typing import Any, List, Dict, Optional
 from dataclasses import fields, is_dataclass
 
 from core.domain.metrics import MetricStatistics, DataPoint
@@ -65,13 +65,13 @@ def _metric_values_without_startup_zero(metric: MetricStatistics) -> list[float 
     return non_zero_values or values
 
 
-def _mean(values: list[float | int]) -> float | None:
+def _mean(values: list[float | int]) -> Optional[float]:
     if not values:
         return None
     return sum(values) / len(values)
 
 
-def _percentile(values: list[float | int], coeff: float) -> float | None:
+def _percentile(values: list[float | int], coeff: float) -> Optional[float]:
     if not values:
         return None
 
@@ -113,14 +113,14 @@ def to_report_items(data: Any) -> List[Dict[str, Any]]:
             return [{"value": plain}]
 
 
-def to_float(value: str) -> float | None:
+def to_float(value: str) -> Optional[float]:
     try:
         return float(value)
     except ValueError:
         return None
 
 
-def to_int(value: str) -> int | None:
+def to_int(value: str) -> Optional[int]:
     try:
         return int(float(value))
     except ValueError:
@@ -133,14 +133,14 @@ def read_text(path: Path) -> str:
     except OSError:
         return ""
 
-def read_int(path: Path) -> int | None:
+def read_int(path: Path) -> Optional[int]:
     try:
         return int(path.read_text(encoding="utf-8", errors="ignore").strip())
     except (OSError, ValueError):
         return None
 
 
-def empty_to_none(value: str) -> str | None:
+def empty_to_none(value: str) -> Optional[str]:
     """Преобразовать пустую строку в None для отчета."""
     stripped_value = value.strip()
     return stripped_value or None

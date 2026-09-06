@@ -12,18 +12,35 @@ logger = logging.getLogger(__name__)
 
 
 class JSONReporter(BaseReporter):
-    """Запись в JSON-массив. Данные дописываются в конец массива."""
+    """
+    Hierarchical persistence with resilient array extension.
+
+    This reporter appends new benchmark results to an existing JSON array.
+    It includes built-in corruption recovery: if the existing JSON file is
+    malformed, it safely resets the array rather than crashing the suite.
+    """
 
     def __init__(self, output_dir: str) -> None:
+        """
+        Initializes the JSON reporter and ensures the output directory exists.
+
+        Args:
+            output_dir: The target directory for saving JSON reports.
+        """
         self._output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
     def report(self, data: Any) -> None:
+        """
+        Persists benchmark data to a JSON file, appending to existing results.
+
+        Args:
+            data: A single domain entity or a list of entities to be reported.
+        """
         items = to_report_items(data)
         if not items:
             return
 
-        # Определяем имя файла
         if isinstance(data, list) and data:
             class_name = data[0].__class__.__name__.lower()
         elif not isinstance(data, list):
@@ -33,7 +50,6 @@ class JSONReporter(BaseReporter):
 
         filename = os.path.join(self._output_dir, f"{class_name}_report.json")
 
-        # Читаем существующий массив
         existing = []
         if os.path.exists(filename) and os.path.getsize(filename) > 0:
             try:
@@ -43,14 +59,10 @@ class JSONReporter(BaseReporter):
                         existing = content
                     elif isinstance(content, dict):
                         existing = [content]
-                    # иначе считаем массив пустым
             except json.JSONDecodeError:
-                # Файл повреждён – начинаем заново
                 existing = []
 
-        # Добавляем новые записи
         existing.extend(items)
 
-        # Перезаписываем
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(existing, f, ensure_ascii=False, indent=2)

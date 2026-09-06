@@ -15,15 +15,36 @@ logger = logging.getLogger(__name__)
 
 
 class PyTorchINT8Quantizer:
-    """Подготовка INT8 PyTorch-артефакта через torch.quantization."""
+    """
+    Prepares an INT8 PyTorch artifact via torch.ao.quantization.
 
-    def quantize(
-            self,
-            pt_path: Path,
-            int8_pt_path: Path,
-            dataset_config_path: Path,
-            input_size: int,
-    ) -> Path:
+    Note:
+        This implementation uses dynamic quantization, which applies quantization
+        to weights at runtime and activations dynamically. It does not require
+        a calibration dataset, making it faster to execute but potentially less
+        accurate than static quantization.
+    """
+
+    def quantize(self,
+                 pt_path: Path,
+                 int8_pt_path: Path,
+                 dataset_config_path: Path,
+                 input_size: int) -> Path:
+        """
+        Applies dynamic INT8 quantization to the PyTorch model.
+
+        Args:
+            pt_path: Path to the source PyTorch model.
+            int8_pt_path: Target path for the quantized INT8 model.
+            dataset_config_path: Unused in dynamic quantization, but kept for interface consistency.
+            input_size: Unused in dynamic quantization, but kept for interface consistency.
+
+        Returns:
+            Path: The resolved path to the INT8 PyTorch artifact.
+
+        Raises:
+            PyTorchQuantizationError: If dependencies are missing or quantization fails.
+        """
         if int8_pt_path.exists():
             return int8_pt_path
 
@@ -38,21 +59,17 @@ class PyTorchINT8Quantizer:
         pt_path = ensure_yolo_pt_model(pt_path)
 
         try:
-            # Загружаем модель
             model = torch.load(pt_path, map_location="cpu")
             if hasattr(model, "model"):
-                # Ultralytics YOLO
                 model = model.model
             model.eval()
 
-            # Применяем dynamic quantization (проще, не требует калибровки)
             quantized_model = torch.ao.quantization.quantize_dynamic(
                 model,
                 {torch.nn.Linear, torch.nn.Conv2d},
                 dtype=torch.qint8,
             )
 
-            # Сохраняем квантованную модель
             torch.save(quantized_model, int8_pt_path)
 
             if not int8_pt_path.exists():

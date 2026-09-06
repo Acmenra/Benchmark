@@ -13,7 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 def collect_cpu_power_watts() -> float | None:
-    """Вернуть текущую мощность CPU в ваттах, если платформа это позволяет."""
+    """
+    Main entry point for CPU power retrieval.
+
+    Dispatches to the appropriate OS-specific power collection method based
+    on the current platform.
+
+    Returns:
+        float | None: The current CPU power consumption in Watts, or `None`
+                      if the platform is unsupported or the reading fails.
+    """
     system = platform.system()
 
     if system == "Darwin":
@@ -25,7 +34,16 @@ def collect_cpu_power_watts() -> float | None:
 
 
 def _collect_macos_cpu_power_watts() -> float | None:
-    """Получить мощность CPU на macOS через powermetrics."""
+    """
+    Retrieves CPU power on macOS via the `powermetrics` CLI tool.
+
+    Executes the tool with a strict 5-second timeout to prevent benchmark hangs.
+    Designed specifically for Apple Silicon and modern macOS environments.
+
+    Returns:
+        float | None: The parsed power value in Watts, or `None` if the
+                      subprocess fails or returns an error code.
+    """
     try:
         result = subprocess.run(
             ["powermetrics", "-n", "1", "--samplers", "cpu_power"],
@@ -43,7 +61,19 @@ def _collect_macos_cpu_power_watts() -> float | None:
 
 
 def _parse_macos_cpu_power(output: str) -> float | None:
-    """Достать CPU Power из вывода powermetrics."""
+    """
+    Parses the `powermetrics` stdout to extract CPU power.
+
+    Uses regular expressions to find "CPU Power" or "Processor Power" values.
+    Automatically handles unit conversion from milliwatts (mW) to Watts (W).
+
+    Args:
+        output: The raw stdout string from the `powermetrics` command.
+
+    Returns:
+        float | None: The converted power value in Watts, validated by
+                      `_is_valid_power()`, or `None` if no match is found.
+    """
     patterns = (
         r"CPU Power:\s+([\d.]+)\s+mW",
         r"CPU Power:\s+([\d.]+)\s+W",
@@ -68,7 +98,19 @@ def _parse_macos_cpu_power(output: str) -> float | None:
 
 
 def _collect_linux_rapl_cpu_power_watts() -> float | None:
-    """Получить мощность CPU на Linux через Intel RAPL energy_uj."""
+    """
+    Retrieves CPU power on Linux via Intel RAPL (Running Average Power Limit).
+
+    Calculates instantaneous power by reading the `energy_uj` (microjoules)
+    counter twice with a 0.1-second delay. Power is calculated as:
+    `Delta Energy (Joules) / Delta Time (seconds)`.
+
+    Includes safe handling for hardware counter overflow (wrap-around).
+
+    Returns:
+        float | None: The calculated power in Watts, or `None` if the RAPL
+                      path is missing, unreadable, or the counter overflows.
+    """
     energy_path = _find_rapl_energy_path()
     if energy_path is None:
         return None
@@ -102,7 +144,15 @@ def _collect_linux_rapl_cpu_power_watts() -> float | None:
 
 
 def _find_rapl_energy_path() -> Path | None:
-    """Найти energy_uj для package-level Intel RAPL."""
+    """
+    Locates the `energy_uj` file for package-level Intel RAPL.
+
+    Scans `/sys/class/powercap/intel-rapl*/` to find a valid energy counter.
+
+    Returns:
+        Path | None: The resolved path to the energy counter file, or `None`
+                     if the powercap directory is missing or empty.
+    """
     powercap_root = Path("/sys/class/powercap")
     if not powercap_root.exists():
         return None
@@ -116,5 +166,17 @@ def _find_rapl_energy_path() -> Path | None:
 
 
 def _is_valid_power(power_watts: float) -> bool:
-    """Проверить, что мощность выглядит как реальное значение."""
+    """
+    Sanity check for power readings.
+
+    Validates that the power value is numeric and falls within a physically
+    reasonable range for computing hardware, filtering out erroneous or
+    uninitialized sensor readings.
+
+    Args:
+        power_watts: The calculated power value.
+
+    Returns:
+        bool: `True` if `0 <= power_watts < 1000`.
+    """
     return isinstance(power_watts, (int, float)) and 0 <= power_watts < 1000

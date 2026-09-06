@@ -6,15 +6,26 @@ import logging
 import platform
 import subprocess
 from pathlib import Path
-
 from core.domain.system.system import TemperatureCapabilitiesInfo
+
+from pynvml import nvmlInit, nvmlDeviceGetCount, nvmlDeviceGetHandleByIndex, nvmlDeviceGetTemperature, NVML_TEMPERATURE_GPU
 
 
 logger = logging.getLogger(__name__)
 
 
 def collect_temperature() -> TemperatureCapabilitiesInfo:
-    """Определение доступности температурных датчиков на текущей системе."""
+    """
+    Determines the availability of thermal sensors on the current system.
+
+    Probes both CPU and GPU subsystems to build a boolean capability profile.
+    This is used by the root `HardwareCollector` to populate the `SystemInfo`
+    aggregate, preventing the runner from polling inaccessible sensors.
+
+    Returns:
+        TemperatureCapabilitiesInfo: A domain object containing boolean flags
+                                     `cpu_sensor_available` and `gpu_sensor_available`.
+    """
     cpu_available = _check_cpu_temperature_available()
     gpu_available = _check_gpu_temperature_available()
     
@@ -25,7 +36,18 @@ def collect_temperature() -> TemperatureCapabilitiesInfo:
 
 
 def collect_cpu_temperature_celsius() -> float | None:
-    """Вернуть текущую температуру CPU/SoC в градусах Цельсия, если она доступна."""
+    """
+    Retrieves the current CPU/SoC temperature in degrees Celsius.
+
+    Executes a prioritized, cross-platform fallback chain:
+    1. macOS: Attempts to read via `MPSWorker` (Apple Silicon SoC/MPS temperature).
+    2. System APIs: Falls back to `psutil.sensors_temperatures()` or Windows WMI.
+    3. Linux sysfs: Scans `/sys/class/thermal/` and `/sys/class/hwmon/`.
+    4. Edge Devices: Attempts to read via `NPUCollector` on Linux edge platforms.
+
+    Returns:
+        float | None: The temperature in Celsius, or `None` if no valid sensor is found.
+    """
     system = platform.system()
 
     if system == "Darwin":
@@ -48,7 +70,6 @@ def collect_cpu_temperature_celsius() -> float | None:
         return temperature
 
     if system == "Linux":
-        # На edge-устройствах часть температурных датчиков может быть привязана к NPU.
         try:
             from infrastructure.hardware.collectors.npu import NPUCollector
 
@@ -60,22 +81,30 @@ def collect_cpu_temperature_celsius() -> float | None:
 
 
 def _check_cpu_temperature_available() -> bool:
-    """Определение доступности температурных датчиков CPU.
-    
-    Методы проверки:
-    1. WMI на Windows / psutil на Linux/macOS
-    2. Чтение из /sys/class/thermal/ (Linux/Jetson/RPi)
+    """
+    Verifies CPU sensor accessibility.
+
+    Methods:
+    1. WMI on Windows / psutil on Linux/macOS.
+    2. Reading from `/sys/class/thermal/` (Linux/Jetson/RPi).
+
+    Returns:
+        bool: `True` if `collect_cpu_temperature_celsius()` returns a valid float.
     """
     return collect_cpu_temperature_celsius() is not None
 
 
 def _check_gpu_temperature_available() -> bool:
-    """Определение доступности температурных датчиков GPU.
+    """
+    Verifies GPU sensor accessibility.
 
-    Методы проверки:
-    1. pynvml / nvidia-ml-py (NVIDIA GPU)
-    2. nvidia-smi (NVIDIA GPU, fallback без Python-библиотеки)
-    3. Платформо-специфичные способы (RPi, Jetson)
+    Methods:
+    1. `pynvml` / `nvidia-ml-py` (NVIDIA GPU).
+    2. `nvidia-smi` (NVIDIA GPU, fallback without Python library).
+    3. Platform-specific methods (RPi `vcgencmd`, Jetson Tegra zones).
+
+    Returns:
+        bool: `True` if any GPU temperature source is successfully validated.
     """
     try:
         if _check_nvidia_gpu():
@@ -99,7 +128,12 @@ def _check_gpu_temperature_available() -> bool:
 
 
 def _get_cpu_temperature_system() -> float | None:
-    """Получение температуры CPU через системные API."""
+    """
+    Retrieves CPU temperature via system-level APIs (`psutil` or WMI).
+
+    Returns:
+        float | None: The temperature in Celsius, or `None` if unavailable.
+    """
     try:
         import psutil
         if hasattr(psutil, 'sensors_temperatures'):
@@ -121,7 +155,12 @@ def _get_cpu_temperature_system() -> float | None:
 
 
 def _get_cpu_temperature_windows_wmi() -> float | None:
-    """Получение температуры CPU через WMI на Windows."""
+    """
+    Retrieves CPU temperature via WMI on Windows.
+
+    Returns:
+        float | None: The temperature in Celsius, or `None` if the WMI query fails.
+    """
     try:
         import wmi
         w = wmi.WMI(namespace="root\\cimv2")
@@ -143,7 +182,15 @@ def _get_cpu_temperature_windows_wmi() -> float | None:
 
 
 def _get_cpu_temperature_thermal_zone() -> float | None:
-    """Получение температуры CPU из системных тепловых зон Linux."""
+    """
+    Retrieves CPU temperature from Linux system thermal zones.
+
+    Scans `/sys/class/thermal`, `/sys/devices/virtual/thermal`, and
+    `/sys/class/hwmon` for valid temperature nodes.
+
+    Returns:
+        float | None: The temperature in Celsius, or `None` if no valid zone is found.
+    """
     for zone_path in sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp")):
         temperature = _read_temperature_path(zone_path)
         if temperature is not None:
@@ -159,7 +206,6 @@ def _get_cpu_temperature_thermal_zone() -> float | None:
         if temperature is not None:
             return temperature
 
-    # Поиск температурных зон в порядке приоритета
     thermal_zones = [
         "/sys/class/thermal/thermal_zone0/temp",
         "/sys/devices/virtual/thermal/thermal_zone0/temp",
@@ -175,7 +221,19 @@ def _get_cpu_temperature_thermal_zone() -> float | None:
 
 
 def _read_temperature_path(path: Path) -> float | None:
-    """Прочитать температуру из sysfs/procfs в градусах Цельсия."""
+    """
+    Reads and parses a temperature value from a sysfs/procfs file.
+
+    Handles automatic conversion from millikelvins to Celsius if the raw
+    value is `>= 1000`. Validates the result using `_is_valid_temperature()`.
+
+    Args:
+        path: The Path object pointing to the thermal zone file.
+
+    Returns:
+        float | None: The temperature in Celsius, or `None` if the file is
+                      missing, unreadable, or contains invalid data.
+    """
     if not path.exists():
         return None
 
@@ -204,7 +262,14 @@ def _read_temperature_path(path: Path) -> float | None:
 
 
 def _check_nvidia_gpu_via_smi() -> bool:
-    """Проверка NVIDIA GPU через nvidia-smi (fallback без nvidia-ml-py)."""
+    """
+    Checks NVIDIA GPU availability via the `nvidia-smi` CLI tool.
+
+    Acts as a fallback when the `pynvml` Python library is not installed.
+
+    Returns:
+        bool: `True` if `nvidia-smi` returns a valid GPU temperature.
+    """
     try:
         result = subprocess.check_output(
             [
@@ -233,44 +298,46 @@ def _check_nvidia_gpu_via_smi() -> bool:
 
 
 def _check_nvidia_gpu() -> bool:
-    """Проверка доступности NVIDIA GPU датчика через pynvml.
+    """
+    Checks NVIDIA GPU availability via the `pynvml` library.
+
+    Initializes the NVML driver and attempts to read the temperature of
+    the first detected GPU.
+
+    Returns:
+        bool: `True` if `pynvml` successfully returns a valid GPU temperature.
     """
     try:
-        from pynvml import (
-            nvmlInit, 
-            nvmlDeviceGetCount, 
-            nvmlDeviceGetHandleByIndex,
-            nvmlDeviceGetTemperature, 
-            NVML_TEMPERATURE_GPU
-        )
-        
-        # Инициализация связи с NVIDIA Driver
         nvmlInit()
         
-        # Проверка количества GPU в системе
         device_count = nvmlDeviceGetCount()
         
         if device_count > 0:
-            # Чтение температуры первого GPU
             handle = nvmlDeviceGetHandleByIndex(0)
             temp = nvmlDeviceGetTemperature(handle, NVML_TEMPERATURE_GPU)
             return _is_valid_temperature(temp)
         
         return False
     except ImportError:
-        # pynvml не установлена
         return False
     except Exception as error:
-        # NVIDIA Driver не найден/другие ошибки
         logger.debug("pynvml не вернул GPU temperature: %s", error)
         return False
 
 
 def _check_platform_gpu() -> bool:
-    """Проверка доступности GPU датчика на Raspberry Pi и NVIDIA Jetson."""
+    """
+    Checks GPU sensor availability on Raspberry Pi and NVIDIA Jetson.
+
+    Methods:
+    - RPi: Uses `vcgencmd measure_temp`.
+    - Jetson: Reads Tegra thermal zones from sysfs.
+
+    Returns:
+        bool: `True` if a platform-specific GPU temperature is successfully read.
+    """
     system = platform.system()
     
-    # RASPBERRY PI 
     if system == "Linux" and os.path.exists("/boot/config.txt"):
         try:
             result = subprocess.check_output(
@@ -285,7 +352,6 @@ def _check_platform_gpu() -> bool:
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as error:
             logger.debug("vcgencmd не вернул GPU temperature: %s", error)
     
-    # NVIDIA JETSON 
     if system == "Linux" and os.path.exists("/etc/nv_tegra_release"):
         try:
             tegra_zones = [
@@ -307,5 +373,18 @@ def _check_platform_gpu() -> bool:
 
 
 def _is_valid_temperature(temp: float) -> bool:
-    """Проверка, является ли значение температуры разумным и реальным (является числом и находится в допустимом диапазоне)."""
+    """
+    Sanity check for temperature readings.
+
+    Validates that the temperature is a numeric type and falls within a
+    physically reasonable range for computing hardware (0°C to 150°C),
+    filtering out erroneous or uninitialized sensor readings.
+
+    Args:
+        temp: The temperature value to validate.
+
+    Returns:
+        bool: `True` if `0 <= temp < 150`.
+    """
+
     return isinstance(temp, (int, float)) and 0 <= temp < 150

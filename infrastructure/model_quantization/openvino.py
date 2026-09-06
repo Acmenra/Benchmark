@@ -16,14 +16,28 @@ logger = logging.getLogger(__name__)
 
 
 class OpenVINOFP16Quantizer:
-    """Подготовка FP16 OpenVINO-артефакта через compress_to_fp16."""
+    """
+    Prepares an FP16 OpenVINO artifact via model compression.
+    """
 
-    def quantize(
-        self,
-        pt_path: Path,
-        fp32_openvino_path: Path,
-        fp16_openvino_path: Path,
-    ) -> Path:
+    def quantize(self,
+                 pt_path: Path,
+                 fp32_openvino_path: Path,
+                 fp16_openvino_path: Path) -> Path:
+        """
+        Converts an FP32 OpenVINO model to FP16 precision.
+
+        Args:
+            pt_path: Path to the source PyTorch model.
+            fp32_openvino_path: Target path for the intermediate FP32 OpenVINO model.
+            fp16_openvino_path: Target path for the final FP16 OpenVINO model.
+
+        Returns:
+            Path: The resolved path to the FP16 OpenVINO artifact directory.
+
+        Raises:
+            OpenVINOQuantizationError: If dependencies are missing or conversion fails.
+        """
         if fp16_openvino_path.exists():
             return fp16_openvino_path
 
@@ -67,16 +81,32 @@ class OpenVINOFP16Quantizer:
 
 
 class OpenVINOINT8Quantizer:
-    """Подготовка INT8 OpenVINO-артефакта через OpenVINO + NNCF."""
+    """
+    Prepares an INT8 OpenVINO artifact via Post-Training Quantization (PTQ) with NNCF.
+    """
 
-    def quantize(
-        self,
-        pt_path: Path,
-        fp32_openvino_path: Path,
-        int8_openvino_path: Path,
-        dataset_config_path: Path,
-        input_size: int,
-    ) -> Path:
+    def quantize(self,
+                 pt_path: Path,
+                 fp32_openvino_path: Path,
+                 int8_openvino_path: Path,
+                 dataset_config_path: Path,
+                 input_size: int) -> Path:
+        """
+        Executes INT8 quantization on the OpenVINO model using a calibration dataset.
+
+        Args:
+            pt_path: Path to the source PyTorch model.
+            fp32_openvino_path: Target path for the intermediate FP32 OpenVINO model.
+            int8_openvino_path: Target path for the final INT8 OpenVINO model.
+            dataset_config_path: Path to the dataset YAML for calibration.
+            input_size: Target spatial resolution.
+
+        Returns:
+            Path: The resolved path to the INT8 OpenVINO artifact directory.
+
+        Raises:
+            OpenVINOQuantizationError: If dependencies are missing or NNCF quantization fails.
+        """
         if int8_openvino_path.exists():
             return int8_openvino_path
 
@@ -135,7 +165,18 @@ class OpenVINOINT8Quantizer:
 
 
 def _find_openvino_xml(openvino_path: Path) -> Path:
-    """Найти XML-файл внутри OpenVINO export-директории."""
+    """
+    Locates the XML file within an OpenVINO export directory.
+
+    Args:
+        openvino_path: Path to the OpenVINO directory or XML file.
+
+    Returns:
+        Path: The resolved path to the `.xml` model file.
+
+    Raises:
+        OpenVINOQuantizationError: If no XML file is found.
+    """
     openvino_path = Path(openvino_path)
     if openvino_path.is_file() and openvino_path.suffix == ".xml":
         return openvino_path
@@ -150,7 +191,13 @@ def _find_openvino_xml(openvino_path: Path) -> Path:
 
 
 def _copy_openvino_metadata(source_dir: Path, target_dir: Path) -> None:
-    """Скопировать metadata.yaml, если Ultralytics добавил его при export."""
+    """
+    Copies `metadata.yaml` if Ultralytics generated it during export.
+
+    Args:
+        source_dir: The source OpenVINO directory.
+        target_dir: The target OpenVINO directory.
+    """
     metadata_path = source_dir / "metadata.yaml"
     if metadata_path.is_file():
         shutil.copy2(metadata_path, target_dir / metadata_path.name)

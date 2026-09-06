@@ -15,20 +15,34 @@ logger = logging.getLogger(__name__)
 
 
 class YoloONNXCalibrationDataReader:
-    """CalibrationDataReader для onnxruntime static quantization."""
+    """
+    CalibrationDataReader implementation for onnxruntime static quantization.
 
-    def __init__(
-        self,
-        input_name: str,
-        image_paths: list[Path],
-        input_size: int,
-    ) -> None:
+    Feeds preprocessed YOLO images to the ONNX Runtime quantizer one by one.
+    """
+    def __init__(self,
+                 input_name: str,
+                 image_paths: list[Path],
+                 input_size: int) -> None:
+        """
+        Args:
+            input_name: The name of the input tensor in the ONNX model.
+            image_paths: List of paths to calibration images.
+            input_size: Target spatial resolution for preprocessing.
+        """
         self.input_name = input_name
         self.image_paths = image_paths
         self.input_size = input_size
         self._index = 0
 
     def get_next(self) -> dict[str, object] | None:
+        """
+        Returns the next preprocessed image batch, or None if exhausted.
+
+        Returns:
+            dict[str, object] | None: A dictionary mapping the input name to the
+                                      preprocessed NCHW tensor.
+        """
         if self._index >= len(self.image_paths):
             return None
 
@@ -40,16 +54,32 @@ class YoloONNXCalibrationDataReader:
 
 
 class ONNXINT8Quantizer:
-    """Подготовка INT8 ONNX-артефакта через onnxruntime.quantization."""
+    """
+    Prepares an INT8 ONNX artifact via onnxruntime.quantization.
+    """
 
-    def quantize(
-        self,
-        pt_path: Path,
-        fp32_onnx_path: Path,
-        int8_onnx_path: Path,
-        dataset_config_path: Path,
-        input_size: int,
-    ) -> Path:
+    def quantize(self,
+                 pt_path: Path,
+                 fp32_onnx_path: Path,
+                 int8_onnx_path: Path,
+                 dataset_config_path: Path,
+                 input_size: int) -> Path:
+        """
+        Executes static INT8 quantization on the exported ONNX model.
+
+        Args:
+            pt_path: Path to the source PyTorch model.
+            fp32_onnx_path: Target path for the intermediate FP32 ONNX model.
+            int8_onnx_path: Target path for the final INT8 ONNX model.
+            dataset_config_path: Path to the dataset YAML for calibration.
+            input_size: Target spatial resolution.
+
+        Returns:
+            Path: The resolved path to the INT8 ONNX artifact.
+
+        Raises:
+            ONNXQuantizationError: If dependencies are missing or quantization fails.
+        """
         if int8_onnx_path.exists():
             return int8_onnx_path
 

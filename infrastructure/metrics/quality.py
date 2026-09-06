@@ -12,36 +12,57 @@ logger = logging.getLogger(__name__)
 
 
 class QualityMetricsCollector(ABC):
-    """Базовый класс для сборщиков метрик качества моделей."""
+    """
+    Abstract base class defining the contract for quality metric collection.
+
+    Subclasses must implement the `collect` method to execute model validation
+    and return aggregated accuracy metrics.
+    """
 
     @abstractmethod
     def collect(self) -> QualityMetrics:
-        """Собирает метрики качества.
-        
+        """
+        Executes the quality metric collection process.
+
         Returns:
-            QualityMetrics с заполненными полями quality metrics
-            или с None в полях, если метрики не удалось рассчитать.
+            QualityMetrics: An immutable domain object with populated quality
+                            fields, or an empty object if calculation fails.
         """
         ...
 
 
 class YOLOQualityMetricsCollector(QualityMetricsCollector):
-    """Сборщик метрик качества для моделей.
-    
-    Использует встроенную функцию валидации для расчёта:
-        - Recall, Precision, F1-Score
-        - mAP50, mAP50-95
+    """
+    Concrete implementation of quality metrics collection for Ultralytics YOLO models.
+
+    This collector leverages the built-in YOLO validation routine (`model.val()`)
+    to compute standard COCO evaluation metrics. It includes intelligent fallback
+    logic to handle different task types (detect, segment, pose, obb) and caches
+    the results to avoid redundant, time-consuming validation runs.
+
+    Key design decisions:
+    - Caching: The first successful `collect()` call caches the result.
+    - Task-aware parsing: Dynamically selects the correct metric namespace
+      (e.g., `results.seg` for segmentation, `results.box` for detection).
+    - Safe type conversion: Validates and bounds-checks all extracted floats.
     """
 
-    def __init__(
-        self,
-        yolo_backend: Any,
-        dataset_path: Path | str,
-        task_type: TaskType | str = TaskType.DETECT,
-        imgsz: int = 640,
-        conf_threshold: float = 0.25,
-    ) -> None:
-        
+    def __init__(self,
+                 yolo_backend: Any,
+                 dataset_path: Path | str,
+                 task_type: TaskType | str = TaskType.DETECT,
+                 imgsz: int = 640,
+                 conf_threshold: float = 0.25) -> None:
+        """
+        Initializes the YOLO quality metrics collector.
+
+        Args:
+            yolo_backend: The inference backend containing the YOLO model.
+            dataset_path: Path to the validation dataset or its `data.yaml` config.
+            task_type: The computer vision task (e.g., DETECT, SEGMENT).
+            imgsz: The inference image resolution.
+            conf_threshold: The confidence threshold for detection filtering.
+        """
         self.yolo_backend = yolo_backend
         self.yolo_model = yolo_backend.model if hasattr(yolo_backend, "model") else yolo_backend
         self.dataset_path = self._resolve_dataset_config(Path(dataset_path))
@@ -51,12 +72,14 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
         self._cached_metrics: QualityMetrics | None = None
 
     def collect(self) -> QualityMetrics:
-        """Собирает метрики качества модели.
-        
-        Запускает валидацию модели на датасете и извлекает метрики.
-        
+        """
+        Collects and returns the model's quality metrics.
+
+        If metrics have already been collected, returns the cached result to
+        save computation time. Otherwise, triggers `_run_validation()`.
+
         Returns:
-            QualityMetrics с заполненными recall, precision, f1-score, mAP50, mAP50-95.
+            QualityMetrics: Populated with recall, precision, f1-score, mAP50, mAP50-95.
         """
         if self._cached_metrics is not None:
             logger.debug("Возвращаю закэшированные метрики качества")
@@ -71,10 +94,11 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
             return QualityMetrics()
 
     def _run_validation(self) -> QualityMetrics:
-        """Запускает валидацию и извлекает метрики из результатов.
-        
+        """
+        Executes the YOLO validation routine and extracts the metrics.
+
         Returns:
-            QualityMetrics с заполненными полями.
+            QualityMetrics: A fully populated domain object with accuracy metrics.
         """
         try:
             logger.info(
@@ -92,8 +116,6 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
 
             metrics_source = self._select_metrics_source(results)
 
-            # Для разных task Ultralytics кладет метрики в разные секции:
-            # detect -> box, segment -> seg, pose -> pose, obb -> obb.
             recall = self._safe_float(
                 getattr(metrics_source, "mr", None),
                 "mean recall",
@@ -103,7 +125,6 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
                 "mean precision",
             )
             
-            # Вычисляем F1-score из precision и recall
             if recall is not None and precision is not None:
                 if recall + precision > 0:
                     f1_score = 2 * (precision * recall) / (precision + recall)
@@ -125,13 +146,11 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
                 map50_95 or 0.0,
             )
 
-            return QualityMetrics(
-                recall=recall,
-                precision=precision,
-                f1_score=f1_score,
-                map50=map50,
-                map50_95=map50_95,
-            )
+            return QualityMetrics(recall=recall,
+                                  precision=precision,
+                                  f1_score=f1_score,
+                                  map50=map50,
+                                  map50_95=map50_95)
 
         except Exception as e:
             logger.error("Ошибка при валидации модели: %s", e)
@@ -139,7 +158,18 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
 
     @staticmethod
     def _resolve_dataset_config(dataset_path: Path) -> Path:
-        """Вернуть YAML-конфиг датасета, если вместо него передали папку."""
+        """
+        Resolves the dataset configuration path.
+
+        If a directory is provided, it automatically appends `data.yaml`
+        if the file exists, ensuring compatibility with Ultralytics expectations.
+
+        Args:
+            dataset_path: The input path (directory or file).
+
+        Returns:
+            Path: The resolved path to the `data.yaml` configuration file.
+        """
         if dataset_path.is_dir():
             dataset_config = dataset_path / "data.yaml"
             if dataset_config.is_file():
@@ -149,13 +179,31 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
 
     @staticmethod
     def _normalize_task_type(task_type: TaskType | str) -> TaskType:
-        """Нормализовать тип задачи из конфига или прямого вызова."""
+        """
+        Normalizes the task type input to a standard `TaskType` enum.
+
+        Args:
+            task_type: The task type as a string or enum.
+
+        Returns:
+            TaskType: The normalized enum value.
+        """
         if isinstance(task_type, TaskType):
             return task_type
         return TaskType(str(task_type).strip().lower())
 
-    def _select_metrics_source(self, results: Any) -> Any:
-        """Выбрать секцию metrics, соответствующую текущему типу задачи."""
+    def _select_metrics_source(self,
+                               results: Any) -> Any:
+        """
+        Selects the correct metrics namespace based on the current task type.
+
+        Args:
+            results: The raw results object returned by `yolo_model.val()`.
+
+        Returns:
+            Any: The specific metrics object (e.g., `results.seg`), or the
+                 root `results` object as a fallback.
+        """
         candidates_by_task = {
             TaskType.SEGMENT.value: "seg",
             TaskType.POSE.value: "pose",
@@ -174,15 +222,24 @@ class YOLOQualityMetricsCollector(QualityMetricsCollector):
         return getattr(results, "box", results)
 
     @staticmethod
-    def _safe_float(value: Any, field_name: str) -> float | None:
-        """Преобразует значение в float.
+    def _safe_float(value: Any,
+                    field_name: str) -> float | None:
+        """
+        Safely converts a value to a float with bounds checking.
+
+        Args:
+            value: The value to convert.
+            field_name: The name of the field (for logging purposes).
+
+        Returns:
+            float | None: The converted float, or `None` if conversion fails
+                          or the value is out of the expected [0, 100] range.
         """
         if value is None:
             return None
 
         try:
             result = float(value)
-            # Нормализуем значение в диапазон [0, 1] если необходимо
             if not (0 <= result <= 100):
                 logger.warning(
                     "Значение %s=%.4f выходит за пределы [0, 100]",

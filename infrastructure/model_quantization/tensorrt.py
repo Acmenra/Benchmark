@@ -4,23 +4,34 @@ import logging
 from pathlib import Path
 
 from infrastructure.exceptions.quantization.errors import TensorRTQuantizationError
-from infrastructure.model_quantization.calibration import (
-    collect_calibration_images,
-    preprocess_yolo_image,
-)
+from infrastructure.model_quantization.calibration import collect_calibration_images, preprocess_yolo_image
 from infrastructure.model_quantization.yolo_export import export_yolo_model
+
 
 logger = logging.getLogger(__name__)
 
 
 class TensorRTFP16Quantizer:
-    """Подготовка FP16 TensorRT-артефакта."""
+    """
+    Prepares an FP16 TensorRT engine artifact.
+    """
 
-    def quantize(
-            self,
-            pt_path: Path,
-            fp16_engine_path: Path,
-    ) -> Path:
+    def quantize(self,
+                 pt_path: Path,
+                 fp16_engine_path: Path) -> Path:
+        """
+        Builds an FP16 TensorRT engine from the source model.
+
+        Args:
+            pt_path: Path to the source PyTorch model.
+            fp16_engine_path: Target path for the final FP16 `.engine` file.
+
+        Returns:
+            Path: The resolved path to the FP16 TensorRT engine.
+
+        Raises:
+            TensorRTQuantizationError: If TensorRT is unavailable or engine building fails.
+        """
         if fp16_engine_path.exists():
             return fp16_engine_path
 
@@ -31,7 +42,6 @@ class TensorRTFP16Quantizer:
                 "Для TensorRT нужен пакет tensorrt (только на NVIDIA GPU)"
             ) from error
 
-        # Сначала экспортируем в ONNX
         onnx_path = fp16_engine_path.with_suffix(".onnx")
         export_yolo_model(
             pt_path=pt_path,
@@ -39,7 +49,6 @@ class TensorRTFP16Quantizer:
             target_path=onnx_path,
         )
 
-        # Создаём TensorRT engine с FP16
         TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
         builder = trt.Builder(TRT_LOGGER)
         network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
@@ -71,15 +80,30 @@ class TensorRTFP16Quantizer:
 
 
 class TensorRTINT8Quantizer:
-    """Подготовка INT8 TensorRT-артефакта с калибровкой."""
+    """
+    Prepares an INT8 TensorRT engine artifact with custom entropy calibration.
+    """
 
-    def quantize(
-            self,
-            pt_path: Path,
-            int8_engine_path: Path,
-            dataset_config_path: Path,
-            input_size: int,
-    ) -> Path:
+    def quantize(self,
+                 pt_path: Path,
+                 int8_engine_path: Path,
+                 dataset_config_path: Path,
+                 input_size: int) -> Path:
+        """
+        Builds an INT8 TensorRT engine using a calibration dataset.
+
+        Args:
+            pt_path: Path to the source PyTorch model.
+            int8_engine_path: Target path for the final INT8 `.engine` file.
+            dataset_config_path: Path to the dataset YAML for calibration.
+            input_size: Target spatial resolution.
+
+        Returns:
+            Path: The resolved path to the INT8 TensorRT engine.
+
+        Raises:
+            TensorRTQuantizationError: If TensorRT is unavailable or engine building fails.
+        """
         if int8_engine_path.exists():
             return int8_engine_path
 
@@ -91,7 +115,6 @@ class TensorRTINT8Quantizer:
                 "Для TensorRT INT8 нужен пакет tensorrt (только на NVIDIA GPU)"
             ) from error
 
-        # Сначала экспортируем в ONNX
         onnx_path = int8_engine_path.with_suffix(".onnx")
         export_yolo_model(
             pt_path=pt_path,
@@ -99,22 +122,23 @@ class TensorRTINT8Quantizer:
             target_path=onnx_path,
         )
 
-        # Собираем калибровочные данные
         image_paths = collect_calibration_images(dataset_config_path)
         calibration_data = [
             preprocess_yolo_image(img_path, input_size)
             for img_path in image_paths
         ]
 
-        # Создаём калибратор
         class Int8Calibrator(trt.IInt8EntropyCalibrator2):
+            """
+             Custom INT8 Entropy Calibrator for TensorRT.
+             Feeds preprocessed batches directly to the GPU via CUDA memory allocation.
+             """
             def __init__(self, data, batch_size=1):
                 trt.IInt8EntropyCalibrator2.__init__(self)
                 self.data = data
                 self.batch_size = batch_size
                 self.current_index = 0
 
-                # Выделяем память на GPU
                 self.device_input = trt.cuda.DeviceAllocation(
                     np.zeros((batch_size, 3, input_size, input_size), dtype=np.float32).nbytes
                 )
@@ -144,7 +168,6 @@ class TensorRTINT8Quantizer:
 
         calibrator = Int8Calibrator(calibration_data)
 
-        # Создаём TensorRT engine с INT8
         TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
         builder = trt.Builder(TRT_LOGGER)
         network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))

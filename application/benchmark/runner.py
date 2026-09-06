@@ -9,7 +9,7 @@ import logging
 import numpy as np
 from pathlib import Path
 from ultralytics import YOLO
-from typing import Generator
+from typing import Generator, Optional
 
 from acmenra_cv import Backend, YOLOBackend
 
@@ -51,9 +51,35 @@ logger = logging.getLogger(__name__)
 
 
 class BenchmarkRunner:
-    """Координирует загрузку модели, инференс и сбор метрик."""
+    """
+    Central orchestrator for model loading, inference execution, and metric collection.
 
-    def __init__(self, benchmark_config: BenchmarkConfig, system_info_config: SystemInfoConfig | None = None) -> None:
+    This class manages the complete lifecycle of a benchmark run. It is designed
+    to be highly resilient, employing generator-based streaming to minimize memory
+    footprint and comprehensive try/except blocks to ensure that a single model
+    failure does not halt the entire benchmark suite.
+
+    Key architectural decisions:
+    - Generator-based execution (`run_suite`, `_run_case`): Yields results as soon
+      as they are ready, preventing memory exhaustion during large matrix runs.
+    - Graceful degradation: Missing devices, unsupported formats, or inference
+      crashes are caught, logged, and recorded as 'skipped' or 'failed' results.
+    - Aggressive resource management: Explicit cleanup of PyTorch caches, OpenCV
+      windows, and backend predictors after every run to prevent memory leaks.
+    - Dynamic artifact resolution: Intelligently handles both standard Ultralytics
+      models (downloading if necessary) and custom local `.pt` paths.
+    """
+
+    def __init__(self,
+                 benchmark_config: BenchmarkConfig,
+                 system_info_config: Optional[SystemInfoConfig] = None) -> None:
+        """
+        Initializes the benchmark runner and underlying hardware collectors.
+
+        Args:
+            benchmark_config: The validated domain configuration for the benchmark.
+            system_info_config: Optional configuration for hardware telemetry collection.
+        """
         self.benchmark_config = benchmark_config
 
         self.models_dir = benchmark_config.models_dir
@@ -65,27 +91,44 @@ class BenchmarkRunner:
         self.ram = RAMCollector(system_info_config=safe_config)
 
     def run_suite(self) -> Generator[ModelBenchmarkResult, None, None]:
-        """Запустить все benchmark-кейсы и возвращать результаты по мере готовности."""
+        """
+        Executes all benchmark cases defined in the configuration.
+
+        Returns:
+            Generator[ModelBenchmarkResult, None, None]: Yields results incrementally
+                                                         as each model run completes.
+        """
         for case in self.benchmark_config.runs:
             yield from self._run_case(case)
 
-    def _run_case(self, case: BenchmarkCase) -> Generator[ModelBenchmarkResult, None, None]:
-        """Выполнить один benchmark-кейс и возвращать результаты моделей по мере готовности."""
+    def _run_case(self,
+                  case: BenchmarkCase) -> Generator[ModelBenchmarkResult, None, None]:
+        """
+        Executes a single benchmark case, iterating over models, devices, formats, and quantizations.
+
+        This method contains the core fault-tolerance logic. Every inference attempt
+        is wrapped in safety checks to ensure the suite continues running even if
+        a specific configuration is invalid or crashes.
+
+        Args:
+            case: The specific benchmark scenario to execute.
+
+        Yields:
+            ModelBenchmarkResult: The outcome of each individual model test.
+        """
         dataset_path = self._get_dataset_path()
         input_size = self.benchmark_config.input_size or 640
         main_iterations = self.benchmark_config.main_iterations or 100
 
-        # 1. БЕЗОПАСНОЕ ОПРЕДЕЛЕНИЕ ИСТОЧНИКА ДАННЫХ
         if dataset_path is not None:
-            logger.info(f"Использую реальный датасет: {dataset_path}")
+            logger.info("Using real dataset: %s", dataset_path)
             data_source = self._collect_image_paths(dataset_path)
             is_synthetic = False
         else:
-            logger.info("Режим синтетических данных: генерирую кадры np.zeros для замера чистой производительности.")
+            logger.info("Synthetic data mode: generating np.zeros frames for pure performance measurement.")
             data_source = [np.zeros((input_size, input_size, 3), dtype=np.uint8) for _ in range(main_iterations)]
             is_synthetic = True
 
-        # 2. ПОЛУЧЕНИЕ СПИСКА УСТРОЙСТВ
         devices_to_test = getattr(self.benchmark_config, 'devices', None)
         if not devices_to_test:
             fallback = self.benchmark_config.device_type or DeviceType.CPU
@@ -95,20 +138,18 @@ class BenchmarkRunner:
             family = model_config.family
             size = model_config.size
 
-            # 3. ЦИКЛ ПО УСТРОЙСТВАМ
             for device in devices_to_test:
-                # Нормализуем устройство. Если оно недоступно, вернется None
                 normalized_device = self._normalize_device(device)
 
-                # Определяем имя устройства для записи в CSV (даже если оно недоступно)
                 device_name_for_csv = str(device).lower() if isinstance(device, str) else getattr(device, 'value',
                                                                                                   str(device)).lower()
 
                 if normalized_device is None:
-                    logger.warning(
-                        f"⚠️ Устройство '{device.value}' недоступно или не распознано. Все тесты для него будут помечены как skipped.")
+                    logger.warning("⚠️ Device '%s' is unavailable or unrecognized. "
+                                   "All tests for it will be marked as skipped.", device)
                 else:
-                    logger.info(f"--- Запуск бенчмарка на устройстве: {device_name_for_csv.upper()} ---")
+                    logger.info("--- Starting benchmark on device: %s ---", device_name_for_csv.upper())
+
 
                 for format_ in self._get_supported_formats():
                     for quantization in self._get_quantization_levels():
@@ -117,7 +158,7 @@ class BenchmarkRunner:
                             yield self._build_status_result(
                                 family=family, size=size, format_=format_,
                                 actual_quantization=quantization, status="skipped",
-                                error=f"Устройство '{device.value}' недоступно на этой системе",
+                                error=f"Device '{device}' is unavailable on this system",
                                 device=device_name_for_csv
                             )
                             continue
@@ -128,12 +169,11 @@ class BenchmarkRunner:
                             yield self._build_status_result(
                                 family=family, size=size, format_=format_,
                                 actual_quantization=quantization, status="skipped",
-                                error="Модель не подготовлена: формат или квантование не поддержаны текущим pipeline",
+                                error="Model not prepared: format or quantization not supported by current pipeline",
                                 device=device_name_for_csv
                             )
                             continue
 
-                        # 4. ЯВНОЕ СОЗДАНИЕ ЦЕПОЧКИ СБОРЩИКОВ
                         collector = MetricsCollector(
                             benchmark_case=case,
                             cpu_collector=CPUMetricsCollector(interval_seconds=0.1, cpu_collector=self.cpu),
@@ -149,8 +189,9 @@ class BenchmarkRunner:
                             collector.start_run()
                             self._run_model_on_data(model, data_source, collector, is_synthetic)
                         except Exception as error:
-                            logger.exception("Ошибка benchmark-прогона %s%s/%s/%s на %s", family, size, format_,
-                                             quantization, device_name_for_csv)
+                            logger.exception("Benchmark run error for %s%s/%s/%s on %s",
+                                             family, size, format_, quantization, device_name_for_csv)
+
                             run_failed = True
                             raw_result = self._safe_get_collector_result(collector)
                             yield self._build_status_result(
@@ -171,21 +212,20 @@ class BenchmarkRunner:
                             else:
                                 quality_metrics = None
                         except Exception as error:
-                            logger.warning("Не удалось собрать метрики качества для %s%s/%s/%s: %s", family, size,
-                                           format_, quantization, error)
+                            logger.warning("Failed to collect quality metrics for %s%s/%s/%s: %s",
+                                           family, size, format_, quantization, error)
+
                             quality_metrics = None
                         finally:
                             self._finalize_run(collector, model)
 
                         yield ModelBenchmarkResult(
-                            model={
-                                "family": family,
-                                "size": size,
-                                "device": device_name_for_csv,
-                                "task_type": self._get_task_type().value,
-                                "format": format_,
-                                "quantization": artifact.quantization,
-                            },
+                            model={"family": family,
+                                   "size": size,
+                                   "device": device_name_for_csv,
+                                   "task_type": self._get_task_type().value,
+                                   "format": format_,
+                                   "quantization": artifact.quantization},
                             status="success",
                             performance=raw_result.performance,
                             cpu=raw_result.cpu,
@@ -193,9 +233,20 @@ class BenchmarkRunner:
                             quality=quality_metrics,
                         )
 
-    def _build_status_result(self, family: str, size: str, format_: str, actual_quantization: str | None, status: str,
-                             error: str | None, performance: LatencyStats | None = None, cpu: CPUMetrics | None = None,
-                             gpu: GPUMetrics | None = None, device: str = "unknown") -> ModelBenchmarkResult:
+    def _build_status_result(self,
+                             family: str,
+                             size: str,
+                             format_: str,
+                             actual_quantization: Optional[str],
+                             status: str,
+                             error: Optional[str],
+                             performance: Optional[LatencyStats] = None,
+                             cpu: Optional[CPUMetrics] = None,
+                             gpu: Optional[GPUMetrics] = None,
+                             device: str = "unknown") -> ModelBenchmarkResult:
+        """
+        Factory method for creating skipped or failed result objects.
+        """
         return ModelBenchmarkResult(
             model={"family": family, "size": size, "device": device, "task_type": self._get_task_type().value,
                    "format": format_, "quantization": actual_quantization},
@@ -207,37 +258,48 @@ class BenchmarkRunner:
             quality=None,
         )
 
-    def _safe_get_collector_result(self, collector: MetricsCollector) -> object:
+    def _safe_get_collector_result(self,
+                                   collector: MetricsCollector) -> object:
+        """
+        Safely extracts metrics from the collector, providing a fallback object on failure.
+        """
         try:
             return collector.get()
         except Exception as error:
-            logger.warning("Не удалось получить метрики benchmark-прогона: %s", error)
+            logger.warning("Failed to retrieve metrics from benchmark run: %s", error)
             return type("FallbackBenchmarkResult", (), {"performance": None, "cpu": None, "gpu": None})()
 
-    def _finalize_run(self, collector: MetricsCollector, model: Backend | None) -> None:
+    def _finalize_run(self,
+                      collector: MetricsCollector,
+                      model: Optional[Backend]) -> None:
+        """
+        Ensures proper teardown of the collector and aggressive cleanup of model resources.
+        """
         try:
             collector.stop_run()
         except Exception as error:
-            logger.exception("Не удалось остановить collector benchmark-прогона: %s", error)
+            logger.exception("Failed to stop collector for benchmark run: %s", error)
         if model is None:
             return
         try:
             self._cleanup_model_resources(model)
         except Exception as error:
-            logger.exception("Не удалось освободить ресурсы модели: %s", error)
+            logger.exception("Failed to free model resources: %s", error)
 
-    def _get_dataset_path(self) -> Path | None:
+    def _get_dataset_path(self) -> Optional[Path]:
+        """
+        Resolves the dataset path from the configuration, applying fallbacks and validations.
+        """
         path_str = self.benchmark_config.test_images
         if not path_str or str(path_str).lower() == "synthetic":
             return None
         dataset_path = Path(path_str)
         if dataset_path.suffix.lower() in (".yaml", ".yml"):
-            logger.warning(
-                f"В test_images указан YAML-файл ({dataset_path.name}), а не папка с данными. Переключаюсь на синтетические данные.")
+            logger.warning("test_images points to a YAML file (%s), not a data directory. Switching to synthetic data.",
+                           dataset_path.name)
             return None
         if not dataset_path.is_dir():
-            logger.warning(
-                f"Путь '{dataset_path}' не найден или не является директорией. Переключаюсь на синтетические данные.")
+            logger.warning("Path '%s' not found or is not a directory. Switching to synthetic data.", dataset_path)
             return None
         if (dataset_path / "images").is_dir():
             return dataset_path / "images"
@@ -247,7 +309,8 @@ class BenchmarkRunner:
             return dataset_path / "train" / "images"
         return dataset_path
 
-    def _collect_image_paths(self, dataset_path: Path) -> list[Path]:
+    def _collect_image_paths(self,
+                             dataset_path: Path) -> list[Path]:
         extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
         image_paths: list[Path] = []
         for ext in extensions:
@@ -268,6 +331,9 @@ class BenchmarkRunner:
 
     def _run_model_on_data(self, model: Backend, data_source: list[Path] | list[np.ndarray],
                            collector: MetricsCollector, is_synthetic: bool) -> None:
+        """
+        Executes the core inference loop, wrapping each prediction with precise timing markers.
+        """
         main_iterations = self.benchmark_config.main_iterations or len(data_source)
         for iteration in range(main_iterations):
             if is_synthetic:
@@ -284,23 +350,38 @@ class BenchmarkRunner:
             finally:
                 collector.mark_stop()
 
-    def resolve_model_artifact(self, family: str, size: str, format_: str,
+    def resolve_model_artifact(self,
+                               family: str,
+                               size: str,
+                               format_: str,
                                quantization: str = QuantizationLevel.FP32.value) -> ResolvedModelArtifact | None:
+        """Public wrapper for model artifact resolution."""
         return self._try_resolve_model_artifact(family, size, format_, self._normalize_quantization(quantization))
 
-    def resolve_model_path(self, family: str, size: str, format_: str,
-                           quantization: str = QuantizationLevel.FP32.value) -> Path | None:
+    def resolve_model_path(self,
+                           family: str,
+                           size: str,
+                           format_: str,
+                           quantization: str = QuantizationLevel.FP32.value) -> Optional[Path]:
+        """Public wrapper to get just the resolved path."""
         artifact = self.resolve_model_artifact(family, size, format_, quantization)
         return artifact.path if artifact is not None else None
 
-    def _try_resolve_model_artifact(self, family: str, size: str, format_: str,
+    def _try_resolve_model_artifact(self,
+                                    family: str,
+                                    size: str,
+                                    format_: str,
                                     quantization: str) -> ResolvedModelArtifact | None:
-        """Возвращает путь к модели нужного формата."""
+        """
+        Core logic for resolving model paths, handling caching, and triggering quantization pipelines.
+
+        Supports both standard Ultralytics models (auto-downloading) and custom local `.pt` paths.
+        Delegates format-specific preparation to dedicated infrastructure quantizers.
+        """
         quantization = self._normalize_quantization(quantization)
         if not self._is_quantization_supported(format_, quantization):
             return None
 
-        # Проверяем, это кастомная модель или стандартная
         is_custom_model = (
                 family.endswith('.pt') or
                 family.startswith('/') or
@@ -313,14 +394,13 @@ class BenchmarkRunner:
             if not pt_path.exists():
                 logger.error(f"Кастомная модель не найдена: {pt_path}")
                 return None
-            # Для кастомных моделей используем имя файла без расширения как основу для кэша
+
             model_stem = pt_path.stem
             logger.info(f"Используется кастомная модель: {pt_path}")
         else:
             model_stem = self._build_model_stem(family, size)
             pt_path = self.models_dir / f"{model_stem}.pt"
 
-        # 1. PyTorch
         if format_ == "pytorch":
             if quantization == QuantizationLevel.INT8.value:
                 int8_artifact = self._prepare_pytorch_int8_artifact(pt_path=pt_path, family=family, size=size)
@@ -333,14 +413,12 @@ class BenchmarkRunner:
                 return None
             return ResolvedModelArtifact(path=pt_path, quantization=quantization)
 
-        # 2. Подготовка путей для остальных форматов
         export_format = ultralytics_export_format(format_)
         extension = export_extension(format_)
         if export_format is None or extension is None:
             logger.warning("Неизвестный формат модели: %s", format_)
             return None
 
-        # Формируем путь к кэшу
         if is_custom_model:
             cache_dir = self.models_dir / "custom_cache"
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -361,7 +439,6 @@ class BenchmarkRunner:
             logger.warning("Не удалось подготовить исходную .pt модель: %s", error)
             return None
 
-        # 3-9. Стандартная логика экспорта
         # OpenVINO FP16
         if format_ == "openvino" and quantization == QuantizationLevel.FP16.value:
             fp16_artifact = self._prepare_openvino_fp16_artifact(pt_path=pt_path, family=family, size=size,
@@ -414,7 +491,6 @@ class BenchmarkRunner:
             if int8_artifact is None: return None
             return ResolvedModelArtifact(path=int8_artifact, quantization=quantization)
 
-        # Стандартный экспорт
         export_kwargs = self._build_export_kwargs(export_format, quantization)
         if export_kwargs is None:
             return None
@@ -433,10 +509,10 @@ class BenchmarkRunner:
         logger.info("Экспорт завершён: %s", exported_path)
         return ResolvedModelArtifact(path=exported_path, quantization=quantization)
 
-    # =========================================================================
-    # МЕТОДЫ ПОДГОТОВКИ АРТЕФАКТОВ
-    # =========================================================================
-    def _prepare_pytorch_int8_artifact(self, pt_path: Path, family: str, size: str) -> Path | None:
+    def _prepare_pytorch_int8_artifact(self,
+                                       pt_path: Path,
+                                       family: str,
+                                       size: str) -> Optional[Path]:
         int8_path = self._build_cached_artifact_path(family, size, ".pt", QuantizationLevel.INT8.value)
         dataset_config_path = self._find_quality_dataset_config()
         if dataset_config_path is None:
@@ -450,7 +526,10 @@ class BenchmarkRunner:
             logger.warning("Не удалось подготовить PyTorch INT8 артефакт для %s%s: %s", family, size, error)
             return None
 
-    def _prepare_tensorrt_fp16_artifact(self, pt_path: Path, family: str, size: str) -> Path | None:
+    def _prepare_tensorrt_fp16_artifact(self,
+                                        pt_path: Path,
+                                        family: str,
+                                        size: str) -> Optional[Path]:
         fp16_path = self._build_cached_artifact_path(family, size, ".engine", QuantizationLevel.FP16.value)
         try:
             return TensorRTFP16Quantizer().quantize(pt_path=pt_path, fp16_engine_path=fp16_path)
@@ -458,7 +537,10 @@ class BenchmarkRunner:
             logger.warning("Не удалось подготовить TensorRT FP16 артефакт для %s%s: %s", family, size, error)
             return None
 
-    def _prepare_tensorrt_int8_artifact(self, pt_path: Path, family: str, size: str) -> Path | None:
+    def _prepare_tensorrt_int8_artifact(self,
+                                        pt_path: Path,
+                                        family: str,
+                                        size: str) -> Optional[Path]:
         int8_path = self._build_cached_artifact_path(family, size, ".engine", QuantizationLevel.INT8.value)
         dataset_config_path = self._find_quality_dataset_config()
         if dataset_config_path is None:
@@ -472,7 +554,7 @@ class BenchmarkRunner:
             logger.warning("Не удалось подготовить TensorRT INT8 артефакт для %s%s: %s", family, size, error)
             return None
 
-    def _prepare_openvino_fp16_artifact(self, pt_path: Path, family: str, size: str, extension: str) -> Path | None:
+    def _prepare_openvino_fp16_artifact(self, pt_path: Path, family: str, size: str, extension: str) -> Optional[Path]:
         fp32_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP32.value)
         fp16_path = self._build_cached_artifact_path(family, size, extension, QuantizationLevel.FP16.value)
         try:
@@ -482,8 +564,12 @@ class BenchmarkRunner:
             logger.warning("Не удалось подготовить FP16 OpenVINO артефакт для %s%s: %s", family, size, error)
             return None
 
-    def _prepare_int8_artifact(self, pt_path: Path, family: str, size: str, format_: str,
-                               extension: str) -> Path | None:
+    def _prepare_int8_artifact(self,
+                               pt_path: Path,
+                               family: str,
+                               size: str,
+                               format_: str,
+                               extension: str) -> Optional[Path]:
         dataset_config_path = self._find_quality_dataset_config()
         if dataset_config_path is None:
             logger.warning("INT8 требует data.yaml для калибровки, датасет не найден")
@@ -505,10 +591,9 @@ class BenchmarkRunner:
         logger.warning("INT8 quantizer для формата %s не реализован", format_)
         return None
 
-    # =========================================================================
-    # ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    # =========================================================================
-    def _is_quantization_supported(self, format_: str, quantization: str) -> bool:
+    def _is_quantization_supported(self,
+                                   format_: str,
+                                   quantization: str) -> bool:
         if quantization == QuantizationLevel.FP32.value:
             return True
         if quantization == QuantizationLevel.INT4.value:
@@ -526,7 +611,11 @@ class BenchmarkRunner:
             return False
         return True
 
-    def _build_cached_artifact_path(self, family: str, size: str, extension: str, quantization: str) -> Path:
+    def _build_cached_artifact_path(self,
+                                    family: str,
+                                    size: str,
+                                    extension: str,
+                                    quantization: str) -> Path:
         is_custom = (
                 family.endswith('.pt') or
                 family.startswith('/') or
@@ -548,7 +637,9 @@ class BenchmarkRunner:
             return base_dir / f"{model_stem}{extension}"
         return base_dir / f"{model_stem}_{quantization}{extension}"
 
-    def _build_model_stem(self, family: str, size: str) -> str:
+    def _build_model_stem(self,
+                          family: str,
+                          size: str) -> str:
         return f"{family}{size}{self._get_task_model_suffix()}"
 
     def _get_task_model_suffix(self) -> str:
@@ -556,7 +647,9 @@ class BenchmarkRunner:
                             TaskType.CLASSIFY.value: "-cls", TaskType.OBB.value: "-obb"}
         return suffixes_by_task.get(self._get_task_type().value, "")
 
-    def _build_export_kwargs(self, export_format: str, quantization: str) -> dict[str, object] | None:
+    def _build_export_kwargs(self,
+                             export_format: str,
+                             quantization: str) -> dict[str, object] | None:
         export_kwargs: dict[str, object] = {"format": export_format}
         if quantization == QuantizationLevel.FP32.value:
             return export_kwargs
@@ -573,15 +666,18 @@ class BenchmarkRunner:
             return export_kwargs
         return None
 
-    def _normalize_quantization(self, quantization: str) -> str:
+    def _normalize_quantization(self,
+                                quantization: str) -> str:
         try:
             return QuantizationLevel(quantization).value
         except ValueError:
             logger.warning("Неизвестный уровень квантования %s, используется fp32", quantization)
             return QuantizationLevel.FP32.value
 
-    def _build_yolo_backend(self, model_path: Path, quantization: str = QuantizationLevel.FP32.value,
-                            override_device: DeviceType | None = None) -> Backend:
+    def _build_yolo_backend(self,
+                            model_path: Path,
+                            quantization: str = QuantizationLevel.FP32.value,
+                            override_device: Optional[DeviceType] = None) -> Backend:
         target_device = override_device or self.benchmark_config.device_type
         device = self._normalize_device(target_device)
 
@@ -589,18 +685,17 @@ class BenchmarkRunner:
             device = DeviceType.CPU
 
         task_type = self._get_task_type()
-        return YOLOBackend(
-            model=YOLO(str(model_path), task=task_type.value),
-            device=device,
-            category=Coco,
-            task_type=task_type,
-            threshold=self.benchmark_config.confidence_threshold or 0.25,
-            iou=0.7,
-            imgsz=self.benchmark_config.input_size or 640,
-            half=quantization == QuantizationLevel.FP16.value,
-        )
+        return YOLOBackend(model=YOLO(str(model_path), task=task_type.value),
+                           device=device,
+                           category=Coco,
+                           task_type=task_type,
+                           threshold=self.benchmark_config.confidence_threshold or 0.25,
+                           iou=0.7,
+                           imgsz=self.benchmark_config.input_size or 640,
+                           half=quantization == QuantizationLevel.FP16.value)
 
-    def _normalize_device(self, device_type: DeviceType | str | None) -> DeviceType | None:
+    def _normalize_device(self,
+                          device_type: DeviceType | str | None) -> Optional[DeviceType]:
         """
         Пуленепробиваемая нормализация устройства.
         Возвращает DeviceType Enum, если устройство доступно.
@@ -644,7 +739,8 @@ class BenchmarkRunner:
         logger.warning(f"⚠️ Неизвестное устройство '{device_str}'. Тест будет пропущен.")
         return None
 
-    def _cleanup_model_resources(self, model: Backend | None) -> None:
+    def _cleanup_model_resources(self, 
+                                 model: Optional[Backend]) -> None:
         if model is None:
             return
         raw_model = getattr(model, "model", None)
@@ -657,7 +753,7 @@ class BenchmarkRunner:
         self._destroy_cv2_windows()
         gc.collect()
 
-    def _call_cleanup_method(self, value: object | None) -> None:
+    def _call_cleanup_method(self, value: Optional[object]) -> None:
         if value is None:
             return
         for method_name in ("close", "release"):
@@ -668,7 +764,8 @@ class BenchmarkRunner:
                 except Exception as error:
                     logger.debug("Не удалось вызвать %s(): %s", method_name, error)
 
-    def _clear_predictor_resources(self, predictor: object) -> None:
+    def _clear_predictor_resources(self, 
+                                   predictor: object) -> None:
         for attribute_name in ("dataset", "vid_writer", "plotted_img", "results", "batch"):
             try:
                 setattr(predictor, attribute_name, None)
@@ -694,7 +791,10 @@ class BenchmarkRunner:
         except Exception as error:
             logger.debug("Не удалось закрыть окна OpenCV: %s", error)
 
-    def _collect_quality_metrics(self, model: Backend, family: str, size: str) -> QualityMetrics | None:
+    def _collect_quality_metrics(self, 
+                                 model: Backend, 
+                                 family: str, 
+                                 size: str) -> Optional[QualityMetrics]:
         try:
             dataset_config_path = self._find_quality_dataset_config()
             if dataset_config_path is None:
@@ -711,7 +811,7 @@ class BenchmarkRunner:
             logger.warning("Не удалось собрать метрики качества для %s%s: %s", family, size, e)
             return None
 
-    def _find_quality_dataset_config(self) -> Path | None:
+    def _find_quality_dataset_config(self) -> Optional[Path]:
         validation_paths: list[Path] = []
         if self.benchmark_config.test_images is not None:
             benchmark_dataset_path = Path(self.benchmark_config.test_images)
@@ -725,7 +825,8 @@ class BenchmarkRunner:
                 return path
         return None
 
-    def _warmup(self, backend: Backend) -> None:
+    def _warmup(self, 
+                backend: Backend) -> None:
         input_size = self.benchmark_config.input_size or 640
         warmup_iterations = self.benchmark_config.warmup_iterations or 10
         fake_frame = np.zeros((input_size, input_size, 3), dtype=np.uint8)

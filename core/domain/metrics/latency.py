@@ -57,12 +57,10 @@ class LatencyStats:
         values = sorted(point.value for point in history)
         mean = sum(values) / len(values)
 
-        return cls(
-            fps=1000.0 / mean if mean > 0 else None,
-            mean_ms=mean,
-            p50_ms=_percentile(values, 0.50),
-            p95_ms=_percentile(values, 0.95),
-            p99_ms=_percentile(values, 0.99),
-            min_ms=values[0],
-            max_ms=values[-1],
-        )
+        return cls(fps=1000.0 / mean if mean > 0 else None,
+                   mean_ms=mean,
+                   p50_ms=_percentile(values, 0.50),
+                   p95_ms=_percentile(values, 0.95),
+                   p99_ms=_percentile(values, 0.99),
+                   min_ms=values[0],
+                   max_ms=values[-1])

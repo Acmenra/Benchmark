@@ -34,7 +34,8 @@ class BaseReporter(ABC):
     """
 
     @abstractmethod
-    def report(self, data: Any) -> None:
+    def report(self,
+               data: Any) -> None:
         """
         Persist benchmark data to the target format (file, database, etc.).
 

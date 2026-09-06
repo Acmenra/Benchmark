@@ -81,5 +81,7 @@ def read_yaml(path: Path | str) -> Config:
                                        collect_power=system_info_data.collect_power,
                                        collect_temperature=system_info_data.collect_temperature)
 
-    return Config(benchmark=benchmark, system_info=system_info, output=output)
+    return Config(benchmark=benchmark,
+                  system_info=system_info,
+                  output=output)
 

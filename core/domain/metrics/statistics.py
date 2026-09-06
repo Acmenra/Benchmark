@@ -9,7 +9,8 @@ from core.domain.metrics.data_point import DataPoint
 logger = logging.getLogger(__name__)
 
 
-def _percentile(sorted_values: list[float], coeff: float) -> float:
+def _percentile(sorted_values: list[float],
+                coeff: float) -> float:
     """
     Computes the value at a given percentile using the nearest-rank method.
 
@@ -49,7 +50,8 @@ class MetricStatistics:
           but the computed properties are idempotent for a given history state.
     """
 
-    def __init__(self, unit: Optional[str] = None) -> None:
+    def __init__(self,
+                 unit: Optional[str] = None) -> None:
         """
         Initializes an empty statistics container.
 

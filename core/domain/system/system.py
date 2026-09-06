@@ -7,6 +7,7 @@ from core.domain.hardware.enums import PlatformType
 from core.domain.operating_system.operating_system import OSInfo
 from core.domain.hardware import CPUInfo, GPUInfo, NPUInfo, TPUInfo, RAMInfo
 
+
 logger = logging.getLogger(__name__)
 
 

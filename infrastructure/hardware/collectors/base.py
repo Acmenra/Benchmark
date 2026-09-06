@@ -2,7 +2,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Union, Optional
 
 from core.domain.hardware import CPUInfo, GPUInfo, NPUInfo, TPUInfo, RAMInfo
 from core.domain.operating_system import OSInfo
@@ -11,26 +11,33 @@ from core.domain.metrics import MetricStatistics
 
 logger = logging.getLogger(__name__)
 
-# Объединенный тип для статической информации от любого коллектора
+
 HardwareInfoType = Union[CPUInfo, GPUInfo, NPUInfo, TPUInfo, RAMInfo, OSInfo, None]
 
 
 class BaseHardwareCollector(ABC):
     """
-    Абстрактный базовый класс для сборщиков информации о компонентах системы.
+    Abstract base class defining the contract for all system component collectors.
 
-    Этот класс задает минимальный контракт. Конкретные реализации могут
-    добавлять свои специфичные методы (например, get_temperature), но
-    обязаны реализовать эти два базовых.
+    This class establishes the minimal interface that concrete implementations
+    (CPU, GPU, RAM, OS, etc.) must fulfill. It separates the concerns of static
+    hardware characterization from dynamic runtime telemetry.
+
+    Key design decisions:
+    - Static info (`get_hardware_info`) is gathered once and cached.
+    - Dynamic metrics (`get_metrics`) are polled periodically and must be fast.
+    - Graceful degradation: Collectors should never crash the suite if hardware
+      is missing; they should return `None` or empty dataclasses.
     """
 
-    def __init__(self, system_info_config: SystemInfoConfig | None = None) -> None:
+    def __init__(self,
+                 system_info_config: Optional[SystemInfoConfig] = None) -> None:
         """
-        Инициализация коллектора.
+        Initializes the base collector with optional telemetry configuration.
 
         Args:
-            system_info_config: Конфигурация сбора. Может быть None, если
-                                коллектору не нужны флаги включения/выключения.
+            system_info_config: Configuration flags controlling which metrics to collect.
+                                Can be `None` for collectors that always run (e.g., OS).
         """
         self.system_info_config = system_info_config
 
@@ -40,39 +47,47 @@ class BaseHardwareCollector(ABC):
     @abstractmethod
     def get_hardware_info(self) -> HardwareInfoType:
         """
-        Возвращает СТАТИЧЕСКУЮ информацию о компоненте.
+        Retrieves the STATIC hardware specifications for the component.
 
-        Вызывается один раз при старте бенчмарка. Не должен содержать
-        тяжелых или блокирующих операций, кроме первоначального опроса системы.
+        This method is called exactly once at the start of the benchmark suite.
+        Implementations should perform any heavy OS-level probing here and cache
+        the result, ensuring subsequent calls are O(1) and non-blocking.
 
         Returns:
-            Экземпляр соответствующего Info-класса (CPUInfo, GPUInfo, OSInfo и т.д.)
-            или None, если компонент не обнаружен или информация недоступна.
+            HardwareInfoType: An immutable domain dataclass (e.g., `CPUInfo`, `GPUInfo`)
+                              populated with static specs, or `None` if the component
+                              is not detected.
         """
         pass
 
     def get_metrics(self) -> MetricStatistics | dict[str, MetricStatistics] | None:
         """
-        Возвращает снимок ДИНАМИЧЕСКИХ (runtime) метрик компонента.
+        Captures a snapshot of DYNAMIC (runtime) metrics for the component.
 
-        Вызывается периодически в фоновом потоке во время инференса.
-        Должен быть максимально быстрым и неблокирующим (< 50 мс).
+        This method is invoked periodically from a background thread during the
+        inference loop. It must be extremely fast and non-blocking (< 50ms).
 
         Returns:
-            - MetricStatistics: если коллектор измеряет одну метрику (напр., CPU utilization).
-            - dict[str, MetricStatistics]: если метрик несколько (напр., GPU: temp, vram, util).
-            - None: если компонент не поддерживает динамические метрики (напр., OSCollector).
+            - `MetricStatistics`: If the collector measures a single metric (e.g., CPU utilization).
+            - `dict[str, MetricStatistics]`: If it measures multiple metrics (e.g., GPU temp, VRAM).
+            - `None`: If the component does not support dynamic metrics (e.g., OS, static RAM).
 
         Note:
-            По умолчанию возвращает None. Переопределяется только там, где нужно.
+            The default implementation returns `None`. Subclasses should override
+            this only if they have dynamic telemetry to report.
         """
         return None
 
     def is_available(self) -> bool:
         """
-        Проверяет, доступен ли компонент для сбора данных на текущей машине.
+        Heuristically checks if the component is accessible on the current machine.
 
-        Можно переопределить в наследниках для более сложной логики проверки.
+        This method is used by the orchestrator to determine if a collector should
+        be included in the telemetry pipeline. It safely catches exceptions to
+        prevent missing drivers or libraries from crashing the initialization.
+
+        Returns:
+            bool: `True` if the component is detected and ready, `False` otherwise.
         """
         try:
             return self.get_hardware_info() is not None
